@@ -71,7 +71,7 @@ try:
 except ValueError as _:
     BSZ = DEFAULT_BSZ
 
-DEFAULT_DATA_DIR = 'ICCV-2025-Workshpt-MARS2'
+DEFAULT_DATA_DIR = 'ICCV-2025-Workshops-MARS2'
 try:
     tmp_data_dir = sys.argv[4]
     if tmp_data_dir.lower() == "none":
