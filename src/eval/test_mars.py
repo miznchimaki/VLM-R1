@@ -1,22 +1,22 @@
-from transformers import Qwen2_5_VLForConditionalGeneration, AutoTokenizer, AutoProcessor
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from qwen_vl_utils import process_vision_info
 import torch
 import json
+import shutil
 from tqdm import tqdm
 import re
 import os
-from pprint import pprint
+import sys
 import random
+from pathlib import Path
+import warnings
 from PIL import Image
 
-
 import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel as DDP
-import argparse
 
-import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
+
 
 def setup_distributed():
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
@@ -29,32 +29,79 @@ def setup_distributed():
     
     return local_rank, world_size, rank
 
+
 local_rank, world_size, rank = setup_distributed()
 device = f"cuda:{local_rank}"
 print(f"Process {rank} using {device}")
-
 main_rank = 0
-steps = 100
-if rank == main_rank:
-    print("Steps: ", steps)
+HOME_DIR = os.getenv('HOME', None)
 
-RUN_NAME = "Qwen2.5-VL-3B-Instruct-rec"
+DEFAULT_CKPT_NAME = "Qwen2.5VL-3B-VLM-R1-REC-500steps-baseline"
+try:
+    tmp_ckpt_name = sys.argv[1]
+    if tmp_ckpt_name.lower() == "none":
+        CKPT_NAME = DEFAULT_CKPT_NAME
+    else:
+        CKPT_NAME = tmp_ckpt_name
+except IndexError as _:
+    CKPT_NAME = DEFAULT_CKPT_NAME
+MODEL_PATH = Path(HOME_DIR) / 'ckpts' / CKPT_NAME
 
-MODEL_PATH=f"/training/shz/project/vlm-r1/VLM-R1/checkpoints/rl/{RUN_NAME}/checkpoint-{steps}"
-OUTPUT_PATH="./logs/rec_results_{DATASET}_{RUN_NAME}_{STEPS}.json"
+DEFAULT_OUTPUT_NAME = f"VLM-R1-Qwen2.5-VL-3B-REC-500steps-baseline-results"
+try:
+    tmp_output_name = sys.argv[2]
+    if tmp_output_name.lower() == "none":
+        OUTPUT_NAME = DEFAULT_OUTPUT_NAME
+    else:
+        OUTPUT_NAME = tmp_output_name
+except IndexError as _:
+    OUTPUT_NAME = DEFAULT_OUTPUT_NAME
+OUTPUT_PATH = Path(HOME_DIR) / 'outputs' / 'MARS2' / OUTPUT_NAME
 
-BSZ=2   
-DATA_ROOT = "/training/shz/dataset/vlm-r1/rec_jsons_processed"
+DEFAULT_BSZ = 2   
+try:
+    tmp_bsz = sys.argv[3]
+    if tmp_bsz.lower() == "none":
+        BSZ = DEFAULT_BSZ
+    else:
+        try:
+            BSZ = int(tmp_bsz)
+        except ValueError as _:
+            BSZ = DEFAULT_BSZ
+except ValueError as _:
+    BSZ = DEFAULT_BSZ
 
-# TEST_DATASETS = ['refcoco_val', 'refcocop_val', 'refcocog_val']
-# IMAGE_ROOT = "/training/shz/dataset/coco"
+DEFAULT_DATA_DIR = 'ICCV-2025-Workshpt-MARS2'
+try:
+    tmp_data_dir = sys.argv[4]
+    if tmp_data_dir.lower() == "none":
+        DATA_DIR = DEFAULT_DATA_DIR
+    else:
+        DATA_DIR = tmp_data_dir
+except IndexError as _:
+    DATA_DIR = DEFAULT_DATA_DIR
+DATA_ROOT = Path(HOME_DIR) / 'datasets' / DATA_DIR
+
+DEFAULT_TEST_DATASETS = ['VG-RS']
+try:
+    tmp_test_datasets = sys.argv[5]
+    if tmp_test_datasets.lower() == "none":
+        TEST_DATASETS = DEFAULT_TEST_DATASETS
+    else:
+        try:
+            TEST_DATASETS = eval(tmp_test_datasets)
+        except Exception as _:
+            TEST_DATASETS = DEFAULT_TEST_DATASETS
+except IndexError as _:
+    TEST_DATASETS = DEFAULT_TEST_DATASETS
+
+IMAGE_DIRS = []
+for test_ds in TEST_DATASETS:
+    IMAGE_DIRS.append(str(DATA_ROOT / test_ds / (test_ds + "-images")))
 
 
-TEST_DATASETS = ['lisa_test']
-IMAGE_ROOT = "/training/shz/dataset/lisa"
-
-
-#We recommend enabling flash_attention_2 for better acceleration and memory saving, especially in multi-image and video scenarios.
+# We recommend enabling flash_attention_2 for better acceleration and memory saving, 
+# especially in multi-image and video scenarios.
 model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
     MODEL_PATH,
     torch_dtype=torch.bfloat16,
@@ -64,6 +111,7 @@ model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
 
 # default processer
 processor = AutoProcessor.from_pretrained(MODEL_PATH)
+
 
 def extract_bbox_answer(content):
     # Try to find the bbox within <answer> tags, if can not find, return [0, 0, 0, 0]
@@ -78,17 +126,19 @@ def extract_bbox_answer(content):
             return bbox
     return [0, 0, 0, 0]
 
+
 def iou(box1, box2):
     inter_x1 = max(box1[0], box2[0])
     inter_y1 = max(box1[1], box2[1])
-    inter_x2 = min(box1[2]-1, box2[2]-1)
-    inter_y2 = min(box1[3]-1, box2[3]-1)
+    inter_x2 = min(box1[2] - 1, box2[2] - 1)
+    inter_y2 = min(box1[3] - 1, box2[3] - 1)
     if inter_x1 < inter_x2 and inter_y1 < inter_y2:
-        inter = (inter_x2-inter_x1+1)*(inter_y2-inter_y1+1)
+        inter = (inter_x2 - inter_x1 + 1) * (inter_y2 - inter_y1 + 1)
     else:
         inter = 0
-    union = (box1[2]-box1[0])*(box1[3]-box1[1]) + (box2[2]-box2[0])*(box2[3]-box2[1]) - inter
-    return float(inter)/union
+    union = (box1[2] - box1[0]) * (box1[3] - box1[1]) + (box2[2] - box2[0]) * (box2[3] - box2[1]) - inter
+    return float(inter) / union
+
 
 def resize_bbox(bbox, input_height, input_width, image_height, image_width):
     bbox[0] = bbox[0] / input_width * image_width
@@ -98,28 +148,27 @@ def resize_bbox(bbox, input_height, input_width, image_height, image_width):
     return bbox
 
 
-num_samples = 2000
-for ds in TEST_DATASETS:
+for idx, ds in enumerate(TEST_DATASETS):
     if rank == main_rank:
         print(f"Processing {ds}...")
-    ds_path = os.path.join(DATA_ROOT, f"{ds}.json")
+    ds_path = os.path.join(str(DATA_ROOT), ds, f"{ds}-question.json")
     data = json.load(open(ds_path, "r"))
     random.seed(42)
     random.shuffle(data)
-    data = data[:num_samples]
-
-    QUESTION_TEMPLATE = "{Question} First output the thinking process in <think> </think> tags and then output the final answer in <answer> </answer> tags. Output the final answer in JSON format."
+    # TODO: need modifications later
+    QUESTION_TEMPLATE = ("{Question} First output the thinking process in <think> </think> tags and then "
+                         "output the final answer in <> <> tags. "
+                         "Output the final answer in JSON format.")
 
     # Split data for distributed evaluation
     per_rank_data = len(data) // world_size
     start_idx = rank * per_rank_data
     end_idx = start_idx + per_rank_data if rank < world_size - 1 else len(data)
-    rank_data = data[start_idx:end_idx]
+    rank_data = data[start_idx: end_idx]
 
     messages = []
-
     for x in rank_data:
-        image_path = os.path.join(IMAGE_ROOT, x['image'])
+        image_path = os.path.join(IMAGE_DIRS[idx], x['image_path'].lstrip("images\\"))
         message = [
             # {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
             {
@@ -131,18 +180,18 @@ for ds in TEST_DATASETS:
                 },
                 {
                     "type": "text",
+                    # TODO: need modifications later
                     "text": QUESTION_TEMPLATE.format(Question=x['problem'])
                 }
             ]
         }]
         messages.append(message)
-
     rank_outputs = [] # List to store answers for this rank
     all_outputs = []  # List to store all answers
 
     # Process data
     for i in tqdm(range(0, len(messages), BSZ), disable=rank != main_rank):
-        batch_messages = messages[i:i + BSZ]
+        batch_messages = messages[i: i + BSZ]
     
         # Preparation for inference
         text = [processor.apply_chat_template(msg, tokenize=False, add_generation_prompt=True) for msg in batch_messages]
@@ -167,17 +216,16 @@ for ds in TEST_DATASETS:
         batch_output_text = processor.batch_decode(
             generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
         )
-        
+
         batch_output = []
         for i, output_text in enumerate(batch_output_text):
-            input_height = int(inputs['image_grid_thw'][i][1]*14)
-            input_width = int(inputs['image_grid_thw'][i][2]*14)
+            input_height = int(inputs['image_grid_thw'][i][1] * 14)
+            input_width = int(inputs['image_grid_thw'][i][2] * 14)
             image = Image.open(batch_messages[i][0]['content'][0]['image'].split("file://")[1])
             image_width, image_height = image.size
             batch_output.append((output_text, input_height, input_width, image_height, image_width))
-            
-        rank_outputs.extend(batch_output)
 
+        rank_outputs.extend(batch_output)
     print(f"Rank {rank} has finished processing {len(rank_outputs)} examples")
 
     # Gather all outputs from all ranks
@@ -186,9 +234,10 @@ for ds in TEST_DATASETS:
 
     gathered_results = [None] * world_size
     dist.all_gather_object(gathered_results, rank_results)
-    
+
     assert gathered_results[-1][-1][0] == len(data) - 1
 
+    # TODO: Now here
     # The main process will collect all results
     if rank == main_rank:
         for results in gathered_results:
@@ -205,14 +254,15 @@ for ds in TEST_DATASETS:
             ground_truth = input_example['solution']
             model_answer = extract_bbox_answer(original_output)
             resized_model_answer = resize_bbox(model_answer, input_height, input_width, image_height, image_width)
-            
+
+            # TODO: Now here
             # Count correct answers
             correct = 0
             if model_answer is not None:
                 if iou(resized_model_answer, ground_truth) > 0.5:
                     correct = 1
             correct_number += correct
-            
+
             # Create a result dictionary for this example
             result = {
                 'image': input_example['image'],
@@ -231,10 +281,11 @@ for ds in TEST_DATASETS:
         print(f"\nAccuracy of {ds}: {accuracy:.2f}%")
 
         # Save results to a JSON file
-        output_path = OUTPUT_PATH.format(DATASET=ds, RUN_NAME=RUN_NAME, STEPS=steps)
-        output_dir = os.path.dirname(output_path)
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+        output_path = OUTPUT_PATH.parent / ds / OUTPUT_NAME
+        shutil.rmtree(output_path)
+        output_path.mkdir(parents=True, exist_ok=False)
+        output_path = str(output_path)
+        # TODO: Now here
         with open(output_path, "w") as f:
             json.dump({
                 'accuracy': accuracy,
@@ -246,8 +297,3 @@ for ds in TEST_DATASETS:
 
     # Synchronize all processes
     dist.barrier()
-
-
-
-
-

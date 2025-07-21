@@ -1,10 +1,10 @@
 from transformers import Qwen2_5_VLForConditionalGeneration, Qwen2VLForConditionalGeneration, AutoProcessor
-from typing import Dict, Any, Union
+from typing import Any, Union
 from trl.data_utils import maybe_apply_chat_template
 import torch
-from copy import deepcopy
 from open_r1.vlm_modules.vlm_module import VLMBaseModule
 from PIL import Image
+
 
 class Qwen2VLModule(VLMBaseModule):
     def __init__(self):
@@ -21,30 +21,39 @@ class Qwen2VLModule(VLMBaseModule):
         else:
             raise ValueError(f"Unsupported model: {model_id}")
         return model_cls
-    
+
     def post_model_init(self, model, processing_class):
         pass
-    
+
     def get_processing_class(self):
         return AutoProcessor
-    
+
     def get_vision_modules_keywords(self):  
         return ['visual']
-    
+
     def get_custom_multimodal_keywords(self):
         return ['pixel_values', 'image_grid_thw']
 
     def get_non_generate_params(self):
         return []
-    
+
     def get_custom_processing_keywords(self):
         return [('image_processor', 'max_pixels'), ('image_processor', 'min_pixels')]
-    
+
     def prepare_prompt(self, processing_class, inputs: dict[str, Union[torch.Tensor, Any]]):
         prompts_text = [maybe_apply_chat_template(example, processing_class)["prompt"] for example in inputs]
         return prompts_text
-    
-    def prepare_model_inputs(self, processing_class, prompts_text, images, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False):
+
+    def prepare_model_inputs(
+                             self, 
+                             processing_class, 
+                             prompts_text, 
+                             images, 
+                             return_tensors="pt",
+                             padding=True, 
+                             padding_side="left", 
+                             add_special_tokens=False
+                            ):
         # FIXME
         # This could only process pure-multimodal or pure-text inputs
         additional_output = None
@@ -65,7 +74,7 @@ class Qwen2VLModule(VLMBaseModule):
                 padding_side=padding_side,
                 add_special_tokens=add_special_tokens)
         return prompt_inputs, additional_output
-    
+
     @staticmethod
     def get_question_template(task_type: str):
         match task_type:
@@ -83,7 +92,7 @@ class Qwen2VLModule(VLMBaseModule):
                 return SYSTEM_PROMPT + '\n' + "{Question}"
             case _:
                 return "{Question} First output the thinking process in <think> </think> tags and then output the final answer in <answer> </answer> tags."
-            
+
     @staticmethod
     def format_reward_rec(completions, **kwargs):
         """Check if the Qwen model output matches a specific format."""
@@ -103,7 +112,7 @@ class Qwen2VLModule(VLMBaseModule):
                     f.write(f"Content: {content}\n")
                     f.write(f"Has format: {bool(match)}\n")
         return [1.0 if match else 0.0 for match in matches]
-    
+
     @staticmethod
     def iou_reward(completions, solution, **kwargs):
         """Calculate IoU reward between predicted bounding box from Qwen model and ground truth bounding box."""
@@ -141,7 +150,7 @@ class Qwen2VLModule(VLMBaseModule):
             image_width, image_height = image.size
             input_height = int(image_grid_thw[1]*14)
             input_width = int(image_grid_thw[2]*14)
-            
+
             sol = re.findall(answer_tag_pattern, sol, re.DOTALL)[-1]
             sol = json.loads(sol.strip())
             reward = 0.0
@@ -159,7 +168,7 @@ class Qwen2VLModule(VLMBaseModule):
                         reward = iou(bbox, sol)
             except Exception:
                 pass  # Continue to next verification method if this fails
-                    
+
             rewards.append(reward)
             if os.getenv("DEBUG_MODE") == "true":
                 log_path = os.getenv("LOG_PATH")
