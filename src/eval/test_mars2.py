@@ -1,4 +1,5 @@
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+from transformers import Glm4vForConditionalGeneration
 from qwen_vl_utils import process_vision_info
 import torch
 import json
@@ -36,9 +37,19 @@ print(f"Process {rank} using {device}")
 main_rank = 0
 HOME_DIR = os.getenv('HOME', None)
 
+DEFAULT_MODEL_TYPE = "qwen2_5_vl"
+try:
+    tmp_model_type = sys.argv[1]
+    if tmp_model_type.lower() == "none":
+        MODEL_TYPE = DEFAULT_MODEL_TYPE
+    else:
+        MODEL_TYPE = tmp_model_type
+except IndexError as _:
+    MODEL_TYPE = DEFAULT_MODEL_TYPE
+
 DEFAULT_CKPT_NAME = "Qwen2.5VL-3B-VLM-R1-REC-500steps"
 try:
-    tmp_ckpt_name = sys.argv[1]
+    tmp_ckpt_name = sys.argv[2]
     if tmp_ckpt_name.lower() == "none":
         CKPT_NAME = DEFAULT_CKPT_NAME
     else:
@@ -49,7 +60,7 @@ MODEL_PATH = Path(HOME_DIR) / 'ckpts' / CKPT_NAME
 
 DEFAULT_OUTPUT_NAME = f"VLM-R1-Qwen2.5-VL-3B-REC-500steps-baseline-results"
 try:
-    tmp_output_name = sys.argv[2]
+    tmp_output_name = sys.argv[3]
     if tmp_output_name.lower() == "none":
         OUTPUT_NAME = DEFAULT_OUTPUT_NAME
     else:
@@ -60,7 +71,7 @@ OUTPUT_PATH = Path(HOME_DIR) / 'outputs' / 'MARS2' / OUTPUT_NAME
 
 DEFAULT_BSZ = 1   
 try:
-    tmp_bsz = sys.argv[3]
+    tmp_bsz = sys.argv[4]
     if tmp_bsz.lower() == "none":
         BSZ = DEFAULT_BSZ
     else:
@@ -73,7 +84,7 @@ except ValueError as _:
 
 DEFAULT_DATA_DIR = 'ICCV-2025-Workshops-MARS2'
 try:
-    tmp_data_dir = sys.argv[4]
+    tmp_data_dir = sys.argv[5]
     if tmp_data_dir.lower() == "none":
         DATA_DIR = DEFAULT_DATA_DIR
     else:
@@ -84,7 +95,7 @@ DATA_ROOT = Path(HOME_DIR) / 'datasets' / DATA_DIR
 
 DEFAULT_TEST_DATASETS = ['VG-RS']
 try:
-    tmp_test_datasets = sys.argv[5]
+    tmp_test_datasets = sys.argv[6]
     if tmp_test_datasets.lower() == "none":
         TEST_DATASETS = DEFAULT_TEST_DATASETS
     else:
@@ -102,12 +113,22 @@ for test_ds in TEST_DATASETS:
 
 # We recommend enabling flash_attention_2 for better acceleration and memory saving, 
 # especially in multi-image and video scenarios.
-model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-    MODEL_PATH,
-    torch_dtype=torch.bfloat16,
-    attn_implementation="flash_attention_2",
-    device_map={"": local_rank}, 
-)
+if MODEL_TYPE == "qwen2_5_vl":
+    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+        MODEL_PATH,
+        torch_dtype=torch.bfloat16,
+        attn_implementation="flash_attention_2",
+        device_map={"": local_rank}, 
+    )
+elif MODEL_TYPE == "glm4v":
+    model = Glm4vForConditionalGeneration.from_pretrained(
+        MODEL_PATH, 
+        torch_dtype=torch.bfloat16, 
+        attn_implementation="flash_attention_2", 
+        device_map={"": local_rank}
+    )
+else:
+    raise ValueError(f"invalid specified model type: {MODEL_TYPE}, only qwen2_5_vl, glm4v are supported")
 
 # default processer
 processor = AutoProcessor.from_pretrained(MODEL_PATH)
@@ -165,8 +186,13 @@ for idx, ds in enumerate(TEST_DATASETS):
     data = json.load(open(ds_path, "r"))
     random.seed(42)
     random.shuffle(data)
-    QUESTION_TEMPLATE = ("Please provide the bounding box coordinates of the region this sentence describes: {query}."
-                         "Output the thinking process in <think> </think> and final answer in <answer> </answer> tags.")
+    if MODEL_TYPE == "qwen2_5_vl":
+        # QUESTION_TEMPLATE = ("Please provide the bounding box coordinates of the region this sentence describes: {query}."
+        #                      "Output the thinking process in <think> </think> and final answer in <answer> </answer> tags.")
+        QUESTION_TEMPLATE = ("{Qeustion} First output the thinking process in <think> </think> tags and then "
+                             "output the final answer in <> <> tags. Output the final answer in JSON format.")
+    elif MODEL_TYPE == "glm4v":
+        QUESTION_TEMPLATE = "Please provide the bounding box coordinates of the region this sentence describes: {query}."
 
     # Split data for distributed evaluation
     per_rank_data = len(data) // world_size
@@ -201,6 +227,7 @@ for idx, ds in enumerate(TEST_DATASETS):
         batch_messages = messages[i: i + BSZ]
 
         # Preparation for inference
+        # TODO: Now here
         text = [processor.apply_chat_template(msg, tokenize=False, add_generation_prompt=True) for msg in batch_messages]
         image_inputs, video_inputs = process_vision_info(batch_messages)
         inputs = processor(
