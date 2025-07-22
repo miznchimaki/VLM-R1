@@ -36,7 +36,7 @@ print(f"Process {rank} using {device}")
 main_rank = 0
 HOME_DIR = os.getenv('HOME', None)
 
-DEFAULT_CKPT_NAME = "Qwen2.5VL-3B-VLM-R1-REC-500steps-baseline"
+DEFAULT_CKPT_NAME = "Qwen2.5VL-3B-VLM-R1-REC-500steps"
 try:
     tmp_ckpt_name = sys.argv[1]
     if tmp_ckpt_name.lower() == "none":
@@ -58,7 +58,7 @@ except IndexError as _:
     OUTPUT_NAME = DEFAULT_OUTPUT_NAME
 OUTPUT_PATH = Path(HOME_DIR) / 'outputs' / 'MARS2' / OUTPUT_NAME
 
-DEFAULT_BSZ = 2   
+DEFAULT_BSZ = 1   
 try:
     tmp_bsz = sys.argv[3]
     if tmp_bsz.lower() == "none":
@@ -116,13 +116,23 @@ processor = AutoProcessor.from_pretrained(MODEL_PATH)
 def extract_bbox_answer(content):
     # Try to find the bbox within <answer> tags, if can not find, return [0, 0, 0, 0]
     answer_tag_pattern = r'<answer>(.*?)</answer>'
-    bbox_pattern = r'\{.*\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)]\s*.*\}'
+    bbox_pattern_1 = r'\{.*\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)]\s*.*\}'
+    bbox_pattern_2 = r'.*\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)]\s*.*'
+    bbox_pattern_3 = r'.*\[(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?)\]\s*.*'
     content_answer_match = re.search(answer_tag_pattern, content, re.DOTALL)
     if content_answer_match:
         content_answer = content_answer_match.group(1).strip()
-        bbox_match = re.search(bbox_pattern, content_answer, re.DOTALL)
-        if bbox_match:
-            bbox = [int(bbox_match.group(1)), int(bbox_match.group(2)), int(bbox_match.group(3)), int(bbox_match.group(4))]
+        bbox_match_1 = re.search(bbox_pattern_1, content_answer, re.DOTALL)
+        if bbox_match_1:
+            bbox = [float(bbox_match_1.group(1)), float(bbox_match_1.group(2)), float(bbox_match_1.group(3)), float(bbox_match_1.group(4))]
+            return bbox
+        bbox_match_2 = re.search(bbox_pattern_2, content_answer, re.DOTALL)
+        if bbox_match_2:
+            bbox = [float(bbox_match_2.group(1)), float(bbox_match_2.group(2)), float(bbox_match_2.group(3)), float(bbox_match_2.group(4))]
+            return bbox
+        bbox_match_3 = re.search(bbox_pattern_3, content_answer, re.DOTALL)
+        if bbox_match_3:
+            bbox = [float(bbox_match_3.group(1)), float(bbox_match_3.group(2)), float(bbox_match_3.group(3)), float(bbox_match_3.group(4))]
             return bbox
     return [0, 0, 0, 0]
 
@@ -155,10 +165,8 @@ for idx, ds in enumerate(TEST_DATASETS):
     data = json.load(open(ds_path, "r"))
     random.seed(42)
     random.shuffle(data)
-    # TODO: need modifications later
-    QUESTION_TEMPLATE = ("{Question} First output the thinking process in <think> </think> tags and then "
-                         "output the final answer in <> <> tags. "
-                         "Output the final answer in JSON format.")
+    QUESTION_TEMPLATE = ("Please provide the bounding box coordinates of the region this sentence describes: {query}."
+                         "Output the thinking process in <think> </think> and final answer in <answer> </answer> tags.")
 
     # Split data for distributed evaluation
     per_rank_data = len(data) // world_size
@@ -180,8 +188,7 @@ for idx, ds in enumerate(TEST_DATASETS):
                 },
                 {
                     "type": "text",
-                    # TODO: need modifications later
-                    "text": QUESTION_TEMPLATE.format(Question=x['problem'])
+                    "text": QUESTION_TEMPLATE.format(query=x['question'])
                 }
             ]
         }]
@@ -192,10 +199,9 @@ for idx, ds in enumerate(TEST_DATASETS):
     # Process data
     for i in tqdm(range(0, len(messages), BSZ), disable=rank != main_rank):
         batch_messages = messages[i: i + BSZ]
-    
+
         # Preparation for inference
         text = [processor.apply_chat_template(msg, tokenize=False, add_generation_prompt=True) for msg in batch_messages]
-        
         image_inputs, video_inputs = process_vision_info(batch_messages)
         inputs = processor(
             text=text,
@@ -209,7 +215,6 @@ for idx, ds in enumerate(TEST_DATASETS):
 
         # Inference: Generation of the output
         generated_ids = model.generate(**inputs, use_cache=True, max_new_tokens=256, do_sample=False)
-        
         generated_ids_trimmed = [
             out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
         ]
@@ -237,7 +242,6 @@ for idx, ds in enumerate(TEST_DATASETS):
 
     assert gathered_results[-1][-1][0] == len(data) - 1
 
-    # TODO: Now here
     # The main process will collect all results
     if rank == main_rank:
         for results in gathered_results:
@@ -247,52 +251,30 @@ for idx, ds in enumerate(TEST_DATASETS):
         assert all_outputs[-1] is not None
 
         final_output = []
-        correct_number = 0
 
         for input_example, model_output in zip(data, all_outputs):
             original_output, input_height, input_width, image_height, image_width = model_output
-            ground_truth = input_example['solution']
             model_answer = extract_bbox_answer(original_output)
             resized_model_answer = resize_bbox(model_answer, input_height, input_width, image_height, image_width)
 
-            # TODO: Now here
-            # Count correct answers
-            correct = 0
-            if model_answer is not None:
-                if iou(resized_model_answer, ground_truth) > 0.5:
-                    correct = 1
-            correct_number += correct
-
             # Create a result dictionary for this example
-            result = {
-                'image': input_example['image'],
-                'question': input_example['problem'],
-                'ground_truth': ground_truth,
-                'model_output': original_output,
-                'input_size': (input_height, input_width),
-                'image_size': (image_height, image_width),
-                'extracted_answer': resized_model_answer,
-                'correct': correct
+            per_item_result = {
+                'image_path': input_example['image_path'],
+                'question': input_example['question'],
+                'result': [[resized_model_answer[0], resized_model_answer[1]], 
+                           [resized_model_answer[2], resized_model_answer[3]]]
             }
-            final_output.append(result)
-
-        # Calculate and print accuracy
-        accuracy = correct_number / len(data) * 100
-        print(f"\nAccuracy of {ds}: {accuracy:.2f}%")
+            final_output.append(per_item_result)
 
         # Save results to a JSON file
-        output_path = OUTPUT_PATH.parent / ds / OUTPUT_NAME
-        shutil.rmtree(output_path)
-        output_path.mkdir(parents=True, exist_ok=False)
-        output_path = str(output_path)
-        # TODO: Now here
-        with open(output_path, "w") as f:
-            json.dump({
-                'accuracy': accuracy,
-                'results': final_output
-            }, f, indent=2)
+        output_path = OUTPUT_PATH / ds / f'{CKPT_NAME}-{ds}-results.json'
+        if output_path.parent.exists():
+            shutil.rmtree(output_path.parent)
+        output_path.parent.mkdir(parents=True, exist_ok=False)
+        with open(output_path, "w") as result_fp:
+            json.dump(final_output, result_fp, ensure_ascii=False)
 
-        print(f"Results saved to {output_path}")
+        print(f"MARS2 Track - {ds} results saved to {output_path}")
         print("-"*100)
 
     # Synchronize all processes
