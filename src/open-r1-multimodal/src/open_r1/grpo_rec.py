@@ -22,20 +22,15 @@
 #     pass
 
 import os
-import re
-from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Optional
 
 from PIL import Image
 from torch.utils.data import Dataset
-from transformers import Qwen2VLForConditionalGeneration
 
-from math_verify import parse, verify
 from open_r1.trainer import VLMGRPOTrainer, GRPOConfig
 from open_r1.vlm_modules import *
 from trl import ModelConfig, ScriptArguments, TrlParser, get_peft_config
-from transformers import TrainingArguments
 import yaml
 import json
 import random
@@ -77,6 +72,7 @@ class GRPOScriptArguments(ScriptArguments):
         metadata={"help": "Root directory of the image"},
     )
 
+
 @dataclass
 class GRPOModelConfig(ModelConfig):
     freeze_vision_modules: bool = False
@@ -88,6 +84,7 @@ SYSTEM_PROMPT = (
     "process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., "
     "<think> reasoning process here </think><answer> answer here </answer>"
 )
+
 
 class LazySupervisedDataset(Dataset):
     def __init__(self, data_path: str, script_args: GRPOScriptArguments, question_template: str):
