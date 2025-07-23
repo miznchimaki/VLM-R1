@@ -4,6 +4,7 @@ from qwen_vl_utils import process_vision_info
 import torch
 import json
 import shutil
+from datetime import timedelta
 from tqdm import tqdm
 import re
 import os
@@ -23,7 +24,7 @@ def setup_distributed():
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     torch.cuda.set_device(local_rank) 
     
-    dist.init_process_group(backend="nccl")
+    dist.init_process_group(backend="nccl", timeout=timedelta(seconds=7200))
     
     world_size = dist.get_world_size()
     rank = dist.get_rank()
@@ -31,6 +32,7 @@ def setup_distributed():
     return local_rank, world_size, rank
 
 
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 local_rank, world_size, rank = setup_distributed()
 device = f"cuda:{local_rank}"
 print(f"Process {rank} using {device}")
@@ -110,7 +112,6 @@ IMAGE_DIRS = []
 for test_ds in TEST_DATASETS:
     IMAGE_DIRS.append(str(DATA_ROOT / test_ds / (test_ds + "-images")))
 
-
 # We recommend enabling flash_attention_2 for better acceleration and memory saving, 
 # especially in multi-image and video scenarios.
 if MODEL_TYPE == "qwen2_5_vl":
@@ -131,31 +132,57 @@ else:
     raise ValueError(f"invalid specified model type: {MODEL_TYPE}, only qwen2_5_vl, glm4v are supported")
 
 # default processer
-processor = AutoProcessor.from_pretrained(MODEL_PATH)
+if MODEL_TYPE == "qwen2_5_vl":
+    processor = AutoProcessor.from_pretrained(MODEL_PATH)
+elif MODEL_TYPE == "glm4v":
+    processor = AutoProcessor.from_pretrained(MODEL_PATH, use_fast=True)
 
 
 def extract_bbox_answer(content):
     # Try to find the bbox within <answer> tags, if can not find, return [0, 0, 0, 0]
-    answer_tag_pattern = r'<answer>(.*?)</answer>'
-    bbox_pattern_1 = r'\{.*\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)]\s*.*\}'
-    bbox_pattern_2 = r'.*\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)]\s*.*'
-    bbox_pattern_3 = r'.*\[(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?)\]\s*.*'
-    content_answer_match = re.search(answer_tag_pattern, content, re.DOTALL)
-    if content_answer_match:
-        content_answer = content_answer_match.group(1).strip()
-        bbox_match_1 = re.search(bbox_pattern_1, content_answer, re.DOTALL)
-        if bbox_match_1:
-            bbox = [float(bbox_match_1.group(1)), float(bbox_match_1.group(2)), float(bbox_match_1.group(3)), float(bbox_match_1.group(4))]
-            return bbox
-        bbox_match_2 = re.search(bbox_pattern_2, content_answer, re.DOTALL)
-        if bbox_match_2:
-            bbox = [float(bbox_match_2.group(1)), float(bbox_match_2.group(2)), float(bbox_match_2.group(3)), float(bbox_match_2.group(4))]
-            return bbox
-        bbox_match_3 = re.search(bbox_pattern_3, content_answer, re.DOTALL)
-        if bbox_match_3:
-            bbox = [float(bbox_match_3.group(1)), float(bbox_match_3.group(2)), float(bbox_match_3.group(3)), float(bbox_match_3.group(4))]
-            return bbox
-    return [0, 0, 0, 0]
+    if MODEL_TYPE == "qwen2_5_vl":
+        answer_tag_pattern = r'<answer>(.*?)</answer>'
+        bbox_pattern_1 = r'\{.*\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)]\s*.*\}'
+        bbox_pattern_2 = r'.*\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)]\s*.*'
+        bbox_pattern_3 = r'.*\[(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?)\]\s*.*'
+        bbox_pattern_4 = r'.*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\s*.*'
+        content_answer_match = re.search(answer_tag_pattern, content, re.DOTALL)
+        if content_answer_match:
+            content_answer = content_answer_match.group(1).strip()
+            bbox_match_1 = re.search(bbox_pattern_1, content_answer, re.DOTALL)
+            if bbox_match_1:
+                bbox = [float(bbox_match_1.group(1)), float(bbox_match_1.group(2)), float(bbox_match_1.group(3)), float(bbox_match_1.group(4))]
+                return bbox
+            bbox_match_2 = re.search(bbox_pattern_2, content_answer, re.DOTALL)
+            if bbox_match_2:
+                bbox = [float(bbox_match_2.group(1)), float(bbox_match_2.group(2)), float(bbox_match_2.group(3)), float(bbox_match_2.group(4))]
+                return bbox
+            bbox_match_3 = re.search(bbox_pattern_3, content_answer, re.DOTALL)
+            if bbox_match_3:
+                bbox = [float(bbox_match_3.group(1)), float(bbox_match_3.group(2)), float(bbox_match_3.group(3)), float(bbox_match_3.group(4))]
+                return bbox
+        else:
+            bbox_match_4 = re.search(bbox_pattern_4, content, re.DOTALL)
+            if bbox_match_4:
+                bbox = [float(bbox_match_4.group(1)), float(bbox_match_4.group(2)), float(bbox_match_4.group(3)), float(bbox_match_4.group(4))]
+                return bbox
+        return [0, 0, 0, 0]
+    elif MODEL_TYPE == "glm4v":
+        answer_tag_pattern = r'<answer><\|begin_of_box\|>(.*?)<\|end_of_box\|></answer>'
+        bbox_pattern_1 = r'.*\[\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)]]\s*.*'
+        bbox_pattern_2 = r'.*\[\[(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?)\]\]\s*.*'
+        content_answer_match = re.search(answer_tag_pattern, content, re.DOTALL)
+        if content_answer_match:
+            content_answer = content_answer_match.group(1).strip()
+            bbox_match_1 = re.search(bbox_pattern_1, content_answer, re.DOTALL)
+            if bbox_match_1:
+                bbox = [float(bbox_match_1.group(1)), float(bbox_match_1.group(2)), float(bbox_match_1.group(3)), float(bbox_match_1.group(4))]
+                return bbox
+            bbox_match_2 = re.search(bbox_pattern_2, content_answer, re.DOTALL)
+            if bbox_match_2:
+                bbox = [float(bbox_match_2.group(1)), float(bbox_match_2.group(2)), float(bbox_match_2.group(3)), float(bbox_match_2.group(4))]
+                return bbox
+        return [0, 0, 0, 0]
 
 
 def iou(box1, box2):
@@ -189,10 +216,11 @@ for idx, ds in enumerate(TEST_DATASETS):
     if MODEL_TYPE == "qwen2_5_vl":
         # QUESTION_TEMPLATE = ("Please provide the bounding box coordinates of the region this sentence describes: {query}."
         #                      "Output the thinking process in <think> </think> and final answer in <answer> </answer> tags.")
-        QUESTION_TEMPLATE = ("{Qeustion} First output the thinking process in <think> </think> tags and then "
-                             "output the final answer in <> <> tags. Output the final answer in JSON format.")
+        QUESTION_TEMPLATE = ("First output the thinking process in <think> </think> tages and then output the final answer " 
+                             "in <answer> </answer> tags. Please provide the bounding box coordinates of the region "
+                             "this sentence describes: {query}")
     elif MODEL_TYPE == "glm4v":
-        QUESTION_TEMPLATE = "Please provide the bounding box coordinates of the region this sentence describes: {query}."
+        QUESTION_TEMPLATE = "Please provide the bounding box coordinates of the region this sentence describes: {query}"
 
     # Split data for distributed evaluation
     per_rank_data = len(data) // world_size
@@ -203,21 +231,25 @@ for idx, ds in enumerate(TEST_DATASETS):
     messages = []
     for x in rank_data:
         image_path = os.path.join(IMAGE_DIRS[idx], x['image_path'].lstrip("images\\"))
+        if MODEL_TYPE == "qwen2_5_vl":
+            img_p = f"file://{image_path}"
+        elif MODEL_TYPE == "glm4v":
+            img_p = image_path
         message = [
-            # {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
             {
-            "role": "user",
-            "content": [
-                {
-                    "type": "image", 
-                    "image": f"file://{image_path}"
-                },
-                {
-                    "type": "text",
-                    "text": QUESTION_TEMPLATE.format(query=x['question'])
-                }
-            ]
-        }]
+             "role": "user", 
+             "content": [
+                 {
+                     "type": "image", 
+                     "image": img_p
+                 }, 
+                 {
+                     "type": "text", 
+                     "text": QUESTION_TEMPLATE.format(query=x['question'])
+                 }
+             ]
+            }
+        ]
         messages.append(message)
     rank_outputs = [] # List to store answers for this rank
     all_outputs = []  # List to store all answers
@@ -227,7 +259,6 @@ for idx, ds in enumerate(TEST_DATASETS):
         batch_messages = messages[i: i + BSZ]
 
         # Preparation for inference
-        # TODO: Now here
         text = [processor.apply_chat_template(msg, tokenize=False, add_generation_prompt=True) for msg in batch_messages]
         image_inputs, video_inputs = process_vision_info(batch_messages)
         inputs = processor(
@@ -241,7 +272,7 @@ for idx, ds in enumerate(TEST_DATASETS):
         inputs = inputs.to(device)
 
         # Inference: Generation of the output
-        generated_ids = model.generate(**inputs, use_cache=True, max_new_tokens=256, do_sample=False)
+        generated_ids = model.generate(**inputs, use_cache=True, max_new_tokens=1024, do_sample=False)
         generated_ids_trimmed = [
             out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
         ]
@@ -253,7 +284,11 @@ for idx, ds in enumerate(TEST_DATASETS):
         for i, output_text in enumerate(batch_output_text):
             input_height = int(inputs['image_grid_thw'][i][1] * 14)
             input_width = int(inputs['image_grid_thw'][i][2] * 14)
-            image = Image.open(batch_messages[i][0]['content'][0]['image'].split("file://")[1])
+            if MODEL_TYPE == "qwen2_5_vl":
+                img_p = batch_messages[i][0]['content'][0]['image'].split("file://")[1]
+            elif MODEL_TYPE == "glm4v":
+                img_p = batch_messages[i][0]['content'][0]['image']
+            image = Image.open(img_p)
             image_width, image_height = image.size
             batch_output.append((output_text, input_height, input_width, image_height, image_width))
 
