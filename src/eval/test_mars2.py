@@ -218,9 +218,9 @@ for idx, ds in enumerate(TEST_DATASETS):
         #                      "Output the thinking process in <think> </think> and final answer in <answer> </answer> tags.")
         QUESTION_TEMPLATE = ("First output the thinking process in <think> </think> tages and then output the final answer " 
                              "in <answer> </answer> tags. Please provide the bounding box coordinates of the region "
-                             "this sentence describes: {query}")
+                             "this sentence describes: {query}.")
     elif MODEL_TYPE == "glm4v":
-        QUESTION_TEMPLATE = "Please provide the bounding box coordinates of the region this sentence describes: {query}"
+        QUESTION_TEMPLATE = "Please provide the bounding box coordinates of the region this sentence describes in the format [x_min, y_min, x_max, y_max]: {query}."
 
     # Split data for distributed evaluation
     per_rank_data = len(data) // world_size
