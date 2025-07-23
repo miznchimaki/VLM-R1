@@ -9,6 +9,7 @@ from pprint import pprint
 import random
 from PIL import Image
 
+
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 import argparse
@@ -17,36 +18,42 @@ import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
 
+
 def setup_distributed():
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     torch.cuda.set_device(local_rank) 
-    
+
     dist.init_process_group(backend="nccl")
-    
+
     world_size = dist.get_world_size()
     rank = dist.get_rank()
-    
-    print(f"Process {rank}/{world_size} initialized on cuda:{local_rank}")
+
     return local_rank, world_size, rank
 
 local_rank, world_size, rank = setup_distributed()
 device = f"cuda:{local_rank}"
+print(f"Process {rank} using {device}")
 
+main_rank = 0
 steps = 100
-MODEL_PATH=f"/data10/shz/project/LLaMA-Factory/saves/qwen2_5_vl-3b/full/sft/checkpoint-{steps}" 
-OUTPUT_PATH="./logs/rec_results_{DATASET}_qwen2_5vl_3b_instruct_sft_{STEPS}.json"
+if rank == main_rank:
+    print("Steps: ", steps)
 
-# MODEL_PATH = "/data10/shz/ckpt/vlm-r1-related/Qwen2.5-VL-3B-Instruct"
-# OUTPUT_PATH = "./logs/rec_results_{DATASET}_qwen2_5vl_3b_instruct_baseline_{STEPS}.json"
+RUN_NAME = "Qwen2.5-VL-3B-Instruct-rec"
 
-BSZ=4
-DATA_ROOT = "/data10/shz/dataset/rec/rec_jsons_processed"
+MODEL_PATH=f"/training/shz/project/vlm-r1/VLM-R1/checkpoints/rl/{RUN_NAME}/checkpoint-{steps}"
+OUTPUT_PATH="./logs/rec_results_{DATASET}_{RUN_NAME}_{STEPS}.json"
 
-TEST_DATASETS = ['refcoco_val', 'refcocop_val', 'refcocog_val']
-IMAGE_ROOT = "/data10/shz/dataset/coco"
+BSZ=2   
+DATA_ROOT = "/training/shz/dataset/vlm-r1/rec_jsons_processed"
 
-# TEST_DATASETS = ['lisa_test']
-# IMAGE_ROOT = "/data10/shz/dataset/lisa"
+# TEST_DATASETS = ['refcoco_val', 'refcocop_val', 'refcocog_val']
+# IMAGE_ROOT = "/training/shz/dataset/coco"
+
+
+TEST_DATASETS = ['lisa_test']
+IMAGE_ROOT = "/training/shz/dataset/lisa"
+
 
 #We recommend enabling flash_attention_2 for better acceleration and memory saving, especially in multi-image and video scenarios.
 model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
@@ -59,15 +66,20 @@ model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
 # default processer
 processor = AutoProcessor.from_pretrained(MODEL_PATH)
 
-def extract_bbox_answer(content):
-    bbox_pattern = r'\[(\s*-?\d*\.?\d+\s*),\s*(\s*-?\d*\.?\d+\s*),\s*(\s*-?\d*\.?\d+\s*),\s*(\s*-?\d*\.?\d+\s*)\]'
-    # bbox_pattern = r'\[(-?\d*\.?\d+),\s*(-?\d*\.?\d+),\s*(-?\d*\.?\d+),\s*(-?\d*\.?\d+)\]'
-    bbox_match = re.search(bbox_pattern, content)
 
-    if bbox_match:
-        bbox = [float(bbox_match.group(1)), float(bbox_match.group(2)), float(bbox_match.group(3)), float(bbox_match.group(4))]
-        return bbox
+def extract_bbox_answer(content):
+    # Try to find the bbox within <answer> tags, if can not find, return [0, 0, 0, 0]
+    answer_tag_pattern = r'<answer>(.*?)</answer>'
+    bbox_pattern = r'\{.*\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)]\s*.*\}'
+    content_answer_match = re.search(answer_tag_pattern, content, re.DOTALL)
+    if content_answer_match:
+        content_answer = content_answer_match.group(1).strip()
+        bbox_match = re.search(bbox_pattern, content_answer, re.DOTALL)
+        if bbox_match:
+            bbox = [int(bbox_match.group(1)), int(bbox_match.group(2)), int(bbox_match.group(3)), int(bbox_match.group(4))]
+            return bbox
     return [0, 0, 0, 0]
+
 
 def iou(box1, box2):
     inter_x1 = max(box1[0], box2[0])
@@ -81,6 +93,7 @@ def iou(box1, box2):
     union = (box1[2]-box1[0])*(box1[3]-box1[1]) + (box2[2]-box2[0])*(box2[3]-box2[1]) - inter
     return float(inter)/union
 
+
 def resize_bbox(bbox, input_height, input_width, image_height, image_width):
     bbox[0] = bbox[0] / input_width * image_width
     bbox[1] = bbox[1] / input_height * image_height
@@ -91,24 +104,22 @@ def resize_bbox(bbox, input_height, input_width, image_height, image_width):
 
 num_samples = 2000
 for ds in TEST_DATASETS:
-    if rank == 0:
+    if rank == main_rank:
         print(f"Processing {ds}...")
-
     ds_path = os.path.join(DATA_ROOT, f"{ds}.json")
     data = json.load(open(ds_path, "r"))
-
     random.seed(42)
     random.shuffle(data)
     data = data[:num_samples]
-    # QUESTION_TEMPLATE = "{Question}" if steps > 0 else "{Question} Please provide the bounding box coordinate in JSON format."
-    QUESTION_TEMPLATE = "{Question} Please provide the bounding box coordinate in JSON format."
-    
+
+    QUESTION_TEMPLATE = "{Question} First output the thinking process in <think> </think> tags and then output the final answer in <answer> </answer> tags. Output the final answer in JSON format."
+
     # Split data for distributed evaluation
     per_rank_data = len(data) // world_size
     start_idx = rank * per_rank_data
     end_idx = start_idx + per_rank_data if rank < world_size - 1 else len(data)
     rank_data = data[start_idx:end_idx]
-    
+
     messages = []
 
     for x in rank_data:
@@ -134,12 +145,12 @@ for ds in TEST_DATASETS:
     all_outputs = []  # List to store all answers
 
     # Process data
-    for i in tqdm(range(0, len(messages), BSZ), disable=rank != 0):
+    for i in tqdm(range(0, len(messages), BSZ), disable=rank != main_rank):
         batch_messages = messages[i:i + BSZ]
-    
+
         # Preparation for inference
         text = [processor.apply_chat_template(msg, tokenize=False, add_generation_prompt=True) for msg in batch_messages]
-        
+
         image_inputs, video_inputs = process_vision_info(batch_messages)
         inputs = processor(
             text=text,
@@ -153,7 +164,7 @@ for ds in TEST_DATASETS:
 
         # Inference: Generation of the output
         generated_ids = model.generate(**inputs, use_cache=True, max_new_tokens=256, do_sample=False)
-        
+
         generated_ids_trimmed = [
             out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
         ]
@@ -168,7 +179,7 @@ for ds in TEST_DATASETS:
             image = Image.open(batch_messages[i][0]['content'][0]['image'].split("file://")[1])
             image_width, image_height = image.size
             batch_output.append((output_text, input_height, input_width, image_height, image_width))
-            
+
         rank_outputs.extend(batch_output)
 
     print(f"Rank {rank} has finished processing {len(rank_outputs)} examples")
@@ -179,11 +190,11 @@ for ds in TEST_DATASETS:
 
     gathered_results = [None] * world_size
     dist.all_gather_object(gathered_results, rank_results)
-    
+
     assert gathered_results[-1][-1][0] == len(data) - 1
 
     # The main process will collect all results
-    if rank == 0:
+    if rank == main_rank:
         for results in gathered_results:
             for idx, output in results:
                 assert idx < len(all_outputs)
@@ -205,13 +216,15 @@ for ds in TEST_DATASETS:
                 if iou(resized_model_answer, ground_truth) > 0.5:
                     correct = 1
             correct_number += correct
-            
+
             # Create a result dictionary for this example
             result = {
                 'image': input_example['image'],
                 'question': input_example['problem'],
                 'ground_truth': ground_truth,
                 'model_output': original_output,
+                'input_size': (input_height, input_width),
+                'image_size': (image_height, image_width),
                 'extracted_answer': resized_model_answer,
                 'correct': correct
             }
@@ -222,7 +235,7 @@ for ds in TEST_DATASETS:
         print(f"\nAccuracy of {ds}: {accuracy:.2f}%")
 
         # Save results to a JSON file
-        output_path = OUTPUT_PATH.format(DATASET=ds, STEPS=steps)
+        output_path = OUTPUT_PATH.format(DATASET=ds, RUN_NAME=RUN_NAME, STEPS=steps)
         output_dir = os.path.dirname(output_path)
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -234,11 +247,6 @@ for ds in TEST_DATASETS:
 
         print(f"Results saved to {output_path}")
         print("-"*100)
-    
+
     # Synchronize all processes
     dist.barrier()
-
-
-
-
-
