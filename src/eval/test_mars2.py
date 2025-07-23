@@ -231,10 +231,7 @@ for idx, ds in enumerate(TEST_DATASETS):
     messages = []
     for x in rank_data:
         image_path = os.path.join(IMAGE_DIRS[idx], x['image_path'].lstrip("images\\"))
-        if MODEL_TYPE == "qwen2_5_vl":
-            img_p = f"file://{image_path}"
-        elif MODEL_TYPE == "glm4v":
-            img_p = image_path
+        img_p = f"file://{image_path}"
         message = [
             {
              "role": "user", 
@@ -284,10 +281,7 @@ for idx, ds in enumerate(TEST_DATASETS):
         for i, output_text in enumerate(batch_output_text):
             input_height = int(inputs['image_grid_thw'][i][1] * 14)
             input_width = int(inputs['image_grid_thw'][i][2] * 14)
-            if MODEL_TYPE == "qwen2_5_vl":
-                img_p = batch_messages[i][0]['content'][0]['image'].split("file://")[1]
-            elif MODEL_TYPE == "glm4v":
-                img_p = batch_messages[i][0]['content'][0]['image']
+            img_p = batch_messages[i][0]['content'][0]['image'].split("file://")[1]
             image = Image.open(img_p)
             image_width, image_height = image.size
             batch_output.append((output_text, input_height, input_width, image_height, image_width))
