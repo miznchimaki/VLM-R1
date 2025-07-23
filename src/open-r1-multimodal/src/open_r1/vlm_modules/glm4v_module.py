@@ -6,7 +6,7 @@ from open_r1.vlm_modules.vlm_module import VLMBaseModule
 from PIL import Image
 
 
-class GLM4vModule(VLMBaseModule):
+class Glm4vModule(VLMBaseModule):
     def __init__(self):
         super().__init__()
 
@@ -192,13 +192,13 @@ class GLM4vModule(VLMBaseModule):
         if func == "accuracy":
             match task_type:
                 case "rec":
-                    return GLM4vModule.iou_reward
+                    return Glm4vModule.iou_reward
                 case _:
                     raise ValueError(f"Unsupported reward function: {func}")
         elif func == "format":
             match task_type:
                 case "rec":
-                    return GLM4vModule.format_reward_rec
+                    return Glm4vModule.format_reward_rec
                 case _:
                     raise ValueError(f"Unsupported reward function: {func}")
         else:
