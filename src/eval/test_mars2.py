@@ -23,12 +23,12 @@ warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
 def setup_distributed():
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     torch.cuda.set_device(local_rank) 
-    
+
     dist.init_process_group(backend="nccl", timeout=timedelta(seconds=7200))
-    
+
     world_size = dist.get_world_size()
     rank = dist.get_rank()
-    
+
     return local_rank, world_size, rank
 
 
