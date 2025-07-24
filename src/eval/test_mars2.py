@@ -199,10 +199,16 @@ def iou(box1, box2):
 
 
 def resize_bbox(bbox, input_height, input_width, image_height, image_width):
-    bbox[0] = bbox[0] / input_width * image_width
-    bbox[1] = bbox[1] / input_height * image_height
-    bbox[2] = bbox[2] / input_width * image_width
-    bbox[3] = bbox[3] / input_height * image_height
+    if MODEL_TYPE == "qwen2_5_vl":
+        bbox[0] = bbox[0] / input_width * image_width
+        bbox[1] = bbox[1] / input_height * image_height
+        bbox[2] = bbox[2] / input_width * image_width
+        bbox[3] = bbox[3] / input_height * image_height
+    elif MODEL_TYPE == "glm4v":
+        bbox[0] = (bbox[0] / 999 * (input_width- 1)) / input_width * image_width
+        bbox[1] = (bbox[1] / 999 * (input_height- 1)) / input_height * image_height
+        bbox[2] = (bbox[2] / 999 * (input_width- 1)) / input_width * image_width
+        bbox[3] = (bbox[3] / 999 * (input_height- 1)) / input_height * image_height
     return bbox
 
 
@@ -269,7 +275,7 @@ for idx, ds in enumerate(TEST_DATASETS):
         inputs = inputs.to(device)
 
         # Inference: Generation of the output
-        generated_ids = model.generate(**inputs, use_cache=True, max_new_tokens=1024, do_sample=False)
+        generated_ids = model.generate(**inputs, use_cache=True, max_new_tokens=2048, do_sample=False)
         generated_ids_trimmed = [
             out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
         ]
