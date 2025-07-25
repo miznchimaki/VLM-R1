@@ -13,7 +13,7 @@ export EXP_NAME="Qwen2.5-VL-3B-Instruct-rec" # TODO: change this to your own exp
 TASK_TYPE="rec"
 cd ${REPO_HOME}/src/open-r1-multimodal
 
-export DEBUG_MODE="true" # Enable Debug if you want to see the rollout of model during RL
+# export DEBUG_MODE="true" # Enable Debug if you want to see the rollout of model during RL
 # create the run directory and log file
 mkdir -p ${REPO_HOME}/runs/${EXP_NAME}/log
 export LOG_PATH="${REPO_HOME}/runs/${EXP_NAME}/log/debug_log.$(date +%Y-%m-%d-%H-%M-%S).txt"
