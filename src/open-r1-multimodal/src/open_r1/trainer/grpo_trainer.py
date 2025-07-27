@@ -552,7 +552,6 @@ class VLMGRPOTrainer(Trainer):
                 except:
                     pass
                 images.append(img)
-                
 
         prompt_inputs, additional_output = self.vlm_module.prepare_model_inputs(
             self.processing_class,
@@ -723,7 +722,7 @@ class VLMGRPOTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         if return_outputs:
             raise ValueError("The GRPOTrainer does not support returning outputs")
-    
+
         # Check if we need to generate new completions or use buffered ones
         if self.state.global_step % self.num_iterations == 0:
             inputs = self._generate_and_score_completions(inputs, model)
@@ -736,7 +735,7 @@ class VLMGRPOTrainer(Trainer):
         prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
         completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
         multimodal_inputs = inputs["multimodal_inputs"]
-        
+
         # Concatenate for full sequence
         input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)

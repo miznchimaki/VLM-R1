@@ -131,7 +131,7 @@ class Qwen2VLModule(VLMBaseModule):
             else:
                 inter = 0
             union = (box1[2] - box1[0]) * (box1[3] - box1[1]) + (box2[2] - box2[0]) * (box2[3] - box2[1]) - inter
-            return float(inter)/union
+            return float(inter) / union
 
         def resize_bbox(bbox, input_height, input_width, image_height, image_width):
             bbox[0] = bbox[0] / input_width * image_width
@@ -151,8 +151,8 @@ class Qwen2VLModule(VLMBaseModule):
             image_path = kwargs.get("image_path")[i][0]
             image = Image.open(image_path)
             image_width, image_height = image.size
-            input_height = int(image_grid_thw[1]*14)
-            input_width = int(image_grid_thw[2]*14)
+            input_height = int(image_grid_thw[1] * 14)
+            input_width = int(image_grid_thw[2] * 14)
 
             sol = re.findall(answer_tag_pattern, sol, re.DOTALL)[-1]
             sol = json.loads(sol.strip())

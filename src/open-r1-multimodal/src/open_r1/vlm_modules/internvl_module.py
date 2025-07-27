@@ -7,12 +7,14 @@ from PIL import Image
 from torchvision.transforms.functional import InterpolationMode
 from transformers.feature_extraction_sequence_utils import BatchFeature
 
+
 IMG_START_TOKEN='<img>'
 IMG_END_TOKEN='</img>'
 IMG_CONTEXT_TOKEN='<IMG_CONTEXT>'
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
+
 
 class InvernVLModule(VLMBaseModule):
     def __init__(self):
@@ -22,7 +24,7 @@ class InvernVLModule(VLMBaseModule):
 
     def get_vlm_key(self):
         return "internvl"
-        
+
     def get_model_class(self, model_id: str, model_init_kwargs: dict):
         assert "InternVL" in model_id, f"model_id must contain 'InternVL', but got {model_id}"
         self.model_config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
@@ -43,23 +45,23 @@ class InvernVLModule(VLMBaseModule):
         self.num_image_token = model.num_image_token if self.num_image_token is None else self.num_image_token
         img_context_token_id = processing_class.convert_tokens_to_ids(IMG_CONTEXT_TOKEN)
         model.img_context_token_id = img_context_token_id
-    
+
     def is_embeds_input(self):
         return True
 
     def get_processing_class(self):
         return AutoProcessor
-    
+
     def get_eos_token_id(self, processing_class):
         eos_token_id = processing_class.convert_tokens_to_ids(self.conv_template.sep.strip())
         return eos_token_id
-        
+
     def get_vision_modules_keywords(self):
         return ['vision_model']
 
     def get_custom_multimodal_keywords(self):
         return ['pixel_values', 'image_flags']
-    
+
     def get_non_generate_params(self):
         return ['image_flags']
 
@@ -86,7 +88,7 @@ class InvernVLModule(VLMBaseModule):
             query = template.get_prompt()
             prompts_text.append(query)
         return prompts_text
-    
+
     def prepare_model_inputs(self, processing_class, prompts_text, images, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False):
         # Process images
         full_pixel_values = []
@@ -96,7 +98,7 @@ class InvernVLModule(VLMBaseModule):
             full_pixel_values.append(pixel_values)
             num_patches_list.append(pixel_values.shape[0])
         full_pixel_values = torch.cat(full_pixel_values, dim=0)
-        
+
         # Process prompts
         queries = []
         image_idx = 0
@@ -108,7 +110,7 @@ class InvernVLModule(VLMBaseModule):
                 image_idx += 1
             queries.append(query)
         assert image_idx == len(num_patches_list)
-        
+
         model_inputs = processing_class(
             queries,
             return_tensors=return_tensors,
@@ -119,7 +121,7 @@ class InvernVLModule(VLMBaseModule):
         model_inputs["pixel_values"] = full_pixel_values
         # Only support pure-image data currently (each sample should contain the image)
         model_inputs['image_flags'] = torch.ones(full_pixel_values.shape[0], dtype=torch.long)
-        
+
         model_inputs = BatchFeature(data=model_inputs)
 
         return model_inputs, None
@@ -136,7 +138,7 @@ class InvernVLModule(VLMBaseModule):
         match task_type:
             case _:
                 return "{Question} First output the thinking process in <think> </think> tags and then output the final answer in <answer> </answer> tags."
-    
+
     @staticmethod
     def format_reward_rec(completions, **kwargs):
         """Check if the InternVL model output matches a specific format."""
@@ -155,7 +157,7 @@ class InvernVLModule(VLMBaseModule):
                     f.write(f"Content: {content}\n")
                     f.write(f"Has format: {bool(match)}\n")
         return [1.0 if match else 0.0 for match in matches]
-        
+
     @staticmethod
     def iou_reward(completions, solution, **kwargs):
         """Calculate IoU reward between predicted bounding box from InternVL model and ground truth bounding box."""
@@ -195,7 +197,7 @@ class InvernVLModule(VLMBaseModule):
                         reward = iou(bbox, sol)
             except Exception:
                 pass  # Continue to next verification method if this fails
-                    
+
             rewards.append(reward)
             if os.getenv("DEBUG_MODE") == "true":
                 log_path = os.getenv("LOG_PATH")
@@ -210,7 +212,7 @@ class InvernVLModule(VLMBaseModule):
                         f.write(f"Content: {content}\n")
                         f.write(f"Solution: {sol}\n") 
         return rewards
-    
+
     @staticmethod
     def select_reward_func(func: str, task_type: str):
         if func == "accuracy":
@@ -233,11 +235,11 @@ def process_conversation_list(conversation_list, system_message=None, image_newl
     if system_message is not None:
         conversation_list = conversation_list[1:]
     processed_list = []
-    
+
     for item in conversation_list:
         role = item["role"]
         content = item["content"]
-        
+
         if isinstance(content, list):
             overall_str = ""
             for content_item in content:
@@ -252,8 +254,9 @@ def process_conversation_list(conversation_list, system_message=None, image_newl
             processed_list.append(content)
         else:
             raise ValueError(f"Unsupported content type: {type(content)}")
-    
+
     return processed_list
+
 
 def extract_system_message(conversation_list):
     if conversation_list[0]["role"] == "system":
@@ -274,6 +277,7 @@ def build_transform(input_size):
     ])
     return transform
 
+
 def find_closest_aspect_ratio(aspect_ratio, target_ratios, width, height, image_size):
     best_ratio_diff = float('inf')
     best_ratio = (1, 1)
@@ -288,6 +292,7 @@ def find_closest_aspect_ratio(aspect_ratio, target_ratios, width, height, image_
             if area > 0.5 * image_size * image_size * ratio[0] * ratio[1]:
                 best_ratio = ratio
     return best_ratio
+
 
 def dynamic_preprocess(image, min_num=1, max_num=12, image_size=448, use_thumbnail=False):
     orig_width, orig_height = image.size
