@@ -853,7 +853,7 @@ class VLMGRPOTrainer(Trainer):
             * self.accelerator.num_processes
             * self.args.gradient_accumulation_steps
         )
-        
+
         return RepeatRandomSampler(
             data_source=self.train_dataset,
             mini_repeat_count=self.num_generations,

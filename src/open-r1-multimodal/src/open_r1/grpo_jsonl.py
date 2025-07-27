@@ -145,7 +145,7 @@ def extract_choice(text):
     # Get context for each choice (20 chars before and after)
     for choice in choices:
         pos = text.find(choice)
-        context = text[max(0, pos-20):min(len(text), pos+20)]
+        context = text[max(0, pos - 20): min(len(text), pos + 20)]
 
         # Add points for keywords
         for keyword in keywords:
@@ -157,7 +157,7 @@ def extract_choice(text):
             choice_scores[choice] += 2
 
         # Add points if followed by punctuation
-        if pos < len(text) - 1 and text[pos+1] in '。.!！,，':
+        if pos < len(text) - 1 and text[pos + 1] in '。.!！,，':
             choice_scores[choice] += 1
 
     # Return highest scoring choice
