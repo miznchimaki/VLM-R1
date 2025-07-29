@@ -1021,7 +1021,7 @@ def main(script_args, training_args, model_args):
                     'role': 'user',
                     'content': [
                         *({'type': 'image', 'text': None} for _ in range(len(example['image_path']))),
-                        {'type': 'text', 'text': question_prompt.format(Question=example['problem'])}
+                        {'type': 'text', 'text': question_prompt.format(query=example['problem'])}
                     ]
                 }]
             }
@@ -1033,7 +1033,7 @@ def main(script_args, training_args, model_args):
                 'prompt': [{
                     'role': 'user',
                     'content': [
-                        {'type': 'text', 'text': question_prompt.format(Question=example['problem'])}
+                        {'type': 'text', 'text': question_prompt.format(query=example['problem'])}
                     ]
                 }]
             }
