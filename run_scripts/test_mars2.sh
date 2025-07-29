@@ -8,9 +8,12 @@ NNODES=${1:-"2"}
 MASTER_ADDR=${2:-"gpu-node7"}
 MASTER_PORT=${3:-"21476"}
 NODE_RANK=${4:-"0"}
-MODEL_TYPE=${5:-"glm4v"}  # glm4v; qwen2_5_vl
-CKPT_NAME=${6:-"GLM-4.1V-9B-Thinking"}  # GLM-4.1V-9B-Thinking; Qwen2.5VL-3B-VLM-R1-REC-500steps
-OUTPUT_NAME=${7:-"GLM-4V-baseline-results"}  # GLM-4V-baseline-results; VLM-R1-Qwen2.5-VL-3B-REC-500steps-baseline-results
+# glm4v; qwen2_5_vl; mimo_vl
+MODEL_TYPE=${5:-"glm4v"}
+# GLM-4.1V-9B-Thinking; Qwen2.5VL-3B-VLM-R1-REC-500steps; MiMo-VL-7B-RL
+CKPT_NAME=${6:-"GLM-4.1V-9B-Thinking"}
+# GLM-4V-baseline-results; VLM-R1-Qwen2.5-VL-3B-REC-500steps-baseline-results; MiMo-VL-7B-RL-baseline-results
+OUTPUT_NAME=${7:-"GLM-4V-baseline-results"}
 BSZ=${8:-"1"}
 DATA_DIR=${9:-"ICCV-2025-Workshops-MARS2"}
 TEST_DATASETS=${10:-"['VG-RS']"}

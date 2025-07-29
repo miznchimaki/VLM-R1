@@ -114,7 +114,7 @@ for test_ds in TEST_DATASETS:
 
 # We recommend enabling flash_attention_2 for better acceleration and memory saving, 
 # especially in multi-image and video scenarios.
-if MODEL_TYPE == "qwen2_5_vl":
+if MODEL_TYPE in ("qwen2_5_vl", "mimo_vl"):
     model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
         MODEL_PATH,
         torch_dtype=torch.bfloat16,
@@ -132,12 +132,14 @@ else:
     raise ValueError(f"invalid specified model type: {MODEL_TYPE}, only qwen2_5_vl, glm4v are supported")
 
 # default processer
-if MODEL_TYPE == "qwen2_5_vl":
+if MODEL_TYPE in ("qwen2_5_vl", "mimo_vl"):
     processor = AutoProcessor.from_pretrained(MODEL_PATH)
 elif MODEL_TYPE == "glm4v":
     processor = AutoProcessor.from_pretrained(MODEL_PATH, use_fast=True)
 
 
+# TODO: Now here
+# TODO: need to support MiMo-VL-7B
 def extract_bbox_answer(content):
     # Try to find the bbox within <answer> tags, if can not find, return [0, 0, 0, 0]
     if MODEL_TYPE == "qwen2_5_vl":
@@ -199,7 +201,7 @@ def iou(box1, box2):
 
 
 def resize_bbox(bbox, input_height, input_width, image_height, image_width):
-    if MODEL_TYPE == "qwen2_5_vl":
+    if MODEL_TYPE in ("qwen2_5_vl", "mimo_vl"):
         bbox[0] = bbox[0] / input_width * image_width
         bbox[1] = bbox[1] / input_height * image_height
         bbox[2] = bbox[2] / input_width * image_width
@@ -227,6 +229,9 @@ for idx, ds in enumerate(TEST_DATASETS):
                              "this sentence describes: {query}.")
     elif MODEL_TYPE == "glm4v":
         QUESTION_TEMPLATE = "Please provide the bounding box coordinates of the region this sentence describes in the format [x_min, y_min, x_max, y_max]: {query}."
+    elif MODEL_TYPE == "mimo_vl":
+        QUESTION_TEMPLATE = ("Please provide the bounding box coordinates of the region this sentence "
+                             "describes in the format [x_min, y_min, x_max, y_max]: {query}.")
 
     # Split data for distributed evaluation
     per_rank_data = len(data) // world_size
