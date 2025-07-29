@@ -544,10 +544,10 @@ class VLMGRPOTrainer(Trainer):
                     # Calculate new dimensions maintaining aspect ratio
                         if w < h:
                             new_w = 28
-                            new_h = int(h * (28/w))
+                            new_h = int(h * (28 / w))
                         else:
                             new_h = 28
-                            new_w = int(w * (28/h))
+                            new_w = int(w * (28 / h))
                     img = img.resize((new_w, new_h), PIL.Image.Resampling.LANCZOS)
                 except:
                     pass

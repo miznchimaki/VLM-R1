@@ -1,4 +1,4 @@
-from transformers import Qwen2_5_VLForConditionalGeneration, Qwen2VLForConditionalGeneration, AutoProcessor
+from transformers import Glm4vForConditionalGeneration, AutoProcessor, AutoModelForCausalLM
 from typing import Any, Union
 from trl.data_utils import maybe_apply_chat_template
 import torch
@@ -11,13 +11,14 @@ class Glm4vModule(VLMBaseModule):
         super().__init__()
 
     def get_vlm_key(self):
-        return "qwen"
+        # return "qwen"
+        return "glm-4v"
 
     def get_model_class(self, model_id: str, model_init_kwargs: dict):
-        if "Qwen2-VL" in model_id:
-            model_cls = Qwen2VLForConditionalGeneration
-        elif "Qwen2.5-VL" in model_id:
-            model_cls = Qwen2_5_VLForConditionalGeneration
+        if "glm-4.1v" in model_id.lower():
+            model_cls = Glm4vForConditionalGeneration
+        elif "glm-4v" in model_id.lower():
+            model_cls = AutoModelForCausalLM
         else:
             raise ValueError(f"Unsupported model: {model_id}")
         return model_cls
@@ -41,7 +42,10 @@ class Glm4vModule(VLMBaseModule):
         return [('image_processor', 'max_pixels'), ('image_processor', 'min_pixels')]
 
     def prepare_prompt(self, processing_class, inputs: dict[str, Union[torch.Tensor, Any]]):
-        prompts_text = [maybe_apply_chat_template(example, processing_class)["prompt"] for example in inputs]
+        if not isinstance(inputs, dict):
+            prompts_text = [processing_class.apply_chat_template(input_message["prompt"], add_generation_prompt=True, tokenize=False) for input_message in inputs]
+        else:
+            prompts_text = processing_class.apply_chat_template(inputs["prompt"], add_generation_prompt=True, tokenize=False)
         return prompts_text
 
     def prepare_model_inputs(
@@ -54,8 +58,6 @@ class Glm4vModule(VLMBaseModule):
                              padding_side="left", 
                              add_special_tokens=False
                             ):
-        # FIXME
-        # This could only process pure-multimodal or pure-text inputs
         additional_output = None
         if len(images) > 0:
             prompt_inputs = processing_class(
@@ -76,6 +78,7 @@ class Glm4vModule(VLMBaseModule):
         return prompt_inputs, additional_output
 
     @staticmethod
+    # TODO: Now here
     def get_question_template(task_type: str):
         match task_type:
             case "rec":
