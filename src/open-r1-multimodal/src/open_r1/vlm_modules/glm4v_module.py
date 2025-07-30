@@ -1,9 +1,43 @@
+import re, os, json
+from datetime import datetime
 from transformers import Glm4vForConditionalGeneration, AutoProcessor, AutoModelForCausalLM
 from typing import Any, Union
-from trl.data_utils import maybe_apply_chat_template
 import torch
 from open_r1.vlm_modules.vlm_module import VLMBaseModule
 from PIL import Image
+
+
+def iou(box1, box2):
+    inter_x1 = max(box1[0], box2[0])
+    inter_y1 = max(box1[1], box2[1])
+    inter_x2 = min(box1[2] - 1, box2[2] - 1)
+    inter_y2 = min(box1[3] - 1, box2[3] - 1)
+    if inter_x1 < inter_x2 and inter_y1 < inter_y2:
+        inter = (inter_x2 - inter_x1 + 1) * (inter_y2 - inter_y1 + 1)
+    else:
+        inter = 0
+    union = (box1[2] - box1[0]) * (box1[3] - box1[1]) + (box2[2] - box2[0]) * (box2[3] - box2[1]) - inter
+    return float(inter) / union
+
+
+def giou(box1, box2):
+    pass
+
+
+def diou(box1, box2):
+    pass
+
+
+def ciou(box1, box2):
+    pass
+
+
+def resize_bbox(bbox, input_height, input_width, image_height, image_width):
+    bbox[0] = (bbox[0] / 999 * (input_width - 1)) / input_width * image_width
+    bbox[1] = (bbox[1] / 999 * (input_height - 1)) / input_height * image_height
+    bbox[2] = (bbox[2] / 999 * (input_width - 1)) / input_width * image_width
+    bbox[3] = (bbox[3] / 999 * (input_height - 1)) / input_height * image_height
+    return bbox
 
 
 class Glm4vModule(VLMBaseModule):
@@ -78,33 +112,66 @@ class Glm4vModule(VLMBaseModule):
         return prompt_inputs, additional_output
 
     @staticmethod
-    # TODO: Now here
     def get_question_template(task_type: str):
         match task_type:
             case "rec":
-                return "{Question} First output the thinking process in <think> </think> tags and then output the final answer in <answer> </answer> tags. Output the final answer in JSON format."
+                return (
+                        "Please provide the bounding box coordinates of the region this "
+                        "sentence describes in the format [x_min, y_min, x_max, y_max]: {query}"
+                       )
             case "ic":
-                return "{Question} First thinks about the reasoning process in the mind and then provides the user with the answer. The reasoning process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think><answer> json format answer here </answer>"
+                return (
+                        "First thinks about the reasoning process in the mind and then "
+                        "provides the user with the answer to the question: {query}"
+                       )
             case "odLength":
-                SYSTEM_PROMPT = (
-                    #"A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant "
-                    "First thinks about the reasoning process in the mind and then provides the user with the answer. The reasoning "
-                    "process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., "
-                    "<think> reasoning process here </think><answer> answer here </answer>"
-                )
-                return SYSTEM_PROMPT + '\n' + "{Question}"
+                return (
+                        "First thinks about the reasoning process in the mind and then "
+                        "provides the user with the answer to the question: {query}"
+                       )
             case _:
-                return "{Question} First output the thinking process in <think> </think> tags and then output the final answer in <answer> </answer> tags."
+                return (
+                        "First thinks about the reasoning process in the mind and then "
+                        "provides the user with the answer to the question: {query}"
+                       )
 
     @staticmethod
-    def format_reward_rec(completions, **kwargs):
-        """Check if the Qwen model output matches a specific format."""
-        import re
-        import os
-        from datetime import datetime
-        pattern = r"<think>.*?</think>\s*<answer>.*?\{.*\[\d+,\s*\d+,\s*\d+,\s*\d+\].*\}.*?</answer>"
+    def glm4v_format_reward(completions, **kwargs):
+        """Check if the GLM-4.1V-Thinking model output matches a specific format."""
+        non_verify_pat = r"\s*<think>(.*?)</think>\s*<answer>(.*?)</answer>\s*"
+        verify_pat = r"\s*<think>(.*?)</think>\s*<answer>(.*?)<|begin_of_box|>(.*?)<|end_of_box|>(.*?)</answer>\s*"
+        think_pat = r"\s*<think>(.*?)</think>\s*"
+        answer_pat = r"\s*<answer>(.*?)</answer>\s*"
+        box_pat = r"\s*<\|begin_of_box\|>(*.?)<\|end_of_box\|>\s*"
+        rec_pat = r".*?\[\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\]\].*?"
+
         completion_contents = [completion[0]["content"] for completion in completions]
-        matches = [re.search(pattern, content, re.DOTALL) is not None for content in completion_contents]
+        task_type = kwargs.pop("task_type", None)
+        if task_type is not None:
+            if task_type.lower() == "non_verify":
+                non_verify_matches = [re.search(non_verify_pat, content, re.DOTALL) is not None for content in completion_contents]
+                think_matches = [len(re.findall(think_pat, content, re.DOTALL)) == 1 for content in completion_contents]
+                answer_matches = [len(re.findall(answer_pat, content, re.DOTALL)) == 1 for content in completion_contents]
+                matches = [
+                    whole_match & think_match & answer_match 
+                    for whole_match, think_match, answer_match 
+                    in zip(non_verify_matches, think_matches, answer_matches)
+                ]
+            elif task_type.lower() in ("verify", "rec"):
+                verify_matches = [re.search(verify_pat, content, re.DOTALL) is not None for content in completion_contents]
+                think_matches = [len(re.findall(think_pat, content, re.DOTALL)) == 1 for content in completion_contents]
+                answer_matches = [len(re.findall(answer_pat, content, re.DOTALL)) == 1 for content in completion_contents]
+                box_matches = [len(re.findall(box_pat, content, re.DOTALL)) == 1 for content in completion_contents]
+                matches = [
+                    verify_match & think_match & answer_match & box_match 
+                    for verify_match, think_match, answer_match, box_match 
+                    in zip(verify_matches, think_matches, answer_matches, box_matches)
+                ]
+                if task_type == "rec":
+                    rec_matches = [len(re.findall(rec_pat, content, re.DOTALL)) == 1 for content in completion_contents]
+                    matches = [rec_match & match for rec_match, match in zip(rec_matches, matches)]
+        else:
+            raise ValueError(f"When using format reward for GLM-4.1V, param named `task_type` must be passed in")
 
         current_time = datetime.now().strftime("%d-%H-%M-%S-%f")
         if os.getenv("DEBUG_MODE") == "true":
@@ -117,61 +184,45 @@ class Glm4vModule(VLMBaseModule):
         return [1.0 if match else 0.0 for match in matches]
 
     @staticmethod
-    def iou_reward(completions, solution, **kwargs):
-        """Calculate IoU reward between predicted bounding box from Qwen model and ground truth bounding box."""
-        import re
-        import os
-        from datetime import datetime
-        import json
-
-        def iou(box1, box2):
-            inter_x1 = max(box1[0], box2[0])
-            inter_y1 = max(box1[1], box2[1])
-            inter_x2 = min(box1[2] - 1, box2[2] - 1)
-            inter_y2 = min(box1[3] - 1, box2[3] - 1)
-            if inter_x1 < inter_x2 and inter_y1 < inter_y2:
-                inter = (inter_x2 - inter_x1 + 1) * (inter_y2 - inter_y1 + 1)
-            else:
-                inter = 0
-            union = (box1[2] - box1[0]) * (box1[3] - box1[1]) + (box2[2] - box2[0]) * (box2[3] - box2[1]) - inter
-            return float(inter)/union
-
-        def resize_bbox(bbox, input_height, input_width, image_height, image_width):
-            bbox[0] = bbox[0] / input_width * image_width
-            bbox[1] = bbox[1] / input_height * image_height
-            bbox[2] = bbox[2] / input_width * image_width
-            bbox[3] = bbox[3] / input_height * image_height
-            return bbox
-
+    def glm4v_iou_reward(completions, solution, **kwargs):
+        """Calculate IoU or GIoU reward between predicted bounding box from GLM-4.1V model and ground truth bounding box."""
+        iou_type = kwargs.pop("iou_type", None)
+        if iou_type.lower() not in ("iou", "giou", "diou", "ciou"):
+            raise ValueError(f"GLM-4.1V now only support following IoU reward types: (IoU, GIoU, DIoU, CIoU)")
+        iou_func = eval(iou_type.lower())
         contents = [completion[0]["content"] for completion in completions]
         rewards = []
         current_time = datetime.now().strftime("%d-%H-%M-%S-%f")
-        answer_tag_pattern = r'<answer>(.*?)</answer>'
-        bbox_pattern = r'\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)]'
+        answer_pat = r'\s*<answer>(.*?)</answer>\s*'
+        rec_box_pat = r'\s*<\|begin_of_box\|>\s*\[\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\]\]\s*<\|end_of_box\|>\s*'
 
         for i, (content, sol) in enumerate(zip(contents, solution)):
             image_grid_thw = kwargs.get("image_grid_thw")[i]
             image_path = kwargs.get("image_path")[i][0]
             image = Image.open(image_path)
             image_width, image_height = image.size
-            input_height = int(image_grid_thw[1]*14)
-            input_width = int(image_grid_thw[2]*14)
+            input_height = int(image_grid_thw[1] * 14)
+            input_width = int(image_grid_thw[2] * 14)
 
-            sol = re.findall(answer_tag_pattern, sol, re.DOTALL)[-1]
+            sol = re.findall(answer_pat, sol, re.DOTALL)[-1]
             sol = json.loads(sol.strip())
             reward = 0.0
             # Try symbolic verification first
             try:
-                content_answer_match = re.search(answer_tag_pattern, content, re.DOTALL)
+                content_answer_match = re.search(answer_pat, content, re.DOTALL)
                 if content_answer_match:
                     content_answer = content_answer_match.group(1).strip()
-                    bbox_match = re.search(bbox_pattern, content_answer)
+                    bbox_match = re.search(rec_box_pat, content_answer)
                     if bbox_match:
                         bbox = [int(bbox_match.group(1)), int(bbox_match.group(2)), int(bbox_match.group(3)), int(bbox_match.group(4))]
                         bbox = resize_bbox(bbox, input_height, input_width, image_height, image_width)
-                        # if iou(bbox, sol) > 0.5:
+                        # FIXME: Maybe useful for MARS2 track-1 competition (1)
+                        # if iou_func(bbox, sol) > 0.5:
                         #     reward = 1.0
-                        reward = iou(bbox, sol)
+                        # FIXME: Maybe usefule for MARS2 track-1 competition (2)
+                        # if iou_func(bbox, sol) < 0.5:
+                        #     reward = 0.0
+                        reward = iou_func(bbox, sol)
             except Exception:
                 pass  # Continue to next verification method if this fails
 
@@ -195,13 +246,13 @@ class Glm4vModule(VLMBaseModule):
         if func == "accuracy":
             match task_type:
                 case "rec":
-                    return Glm4vModule.iou_reward
+                    return Glm4vModule.glm4v_iou_reward
                 case _:
                     raise ValueError(f"Unsupported reward function: {func}")
         elif func == "format":
             match task_type:
                 case "rec":
-                    return Glm4vModule.format_reward_rec
+                    return Glm4vModule.glm4v_format_reward
                 case _:
                     raise ValueError(f"Unsupported reward function: {func}")
         else:
