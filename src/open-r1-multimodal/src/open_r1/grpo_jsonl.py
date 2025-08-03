@@ -18,6 +18,7 @@ import pathlib
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Optional
+from functools import partial
 from babel.numbers import parse_decimal
 from .utils.math import compute_score
 from datasets import load_dataset, load_from_disk
@@ -110,6 +111,14 @@ class GRPOScriptArguments(ScriptArguments):
     task_type: Optional[str] = field(
         default=None,
         metadata={"help": "Choose task type: 'default', 'gui', ..."},
+    )
+    iou_type: Optional[str] = field(
+        default="iou",
+        metadata={"help": "Choose iou type for reward caculation: 'iou', 'giou', 'diou', 'ciou'"},
+    )
+    task_type_for_format_reward: Optional[str] = field(
+        default="rec",
+        metadata={"help": "task type parameter for format reward caculation: 'non_verify', 'verify', 'rec'"}
     )
     is_reward_customized_from_vlm_module: bool = field(
         default=False,
@@ -942,6 +951,8 @@ def get_vlm_module(model_name_or_path):
         return Qwen2VLModule
     elif "internvl" in model_name_or_path.lower():
         return InvernVLModule
+    elif "glm-4v" in model_name_or_path.lower() or "glm-4.1v" in model_name_or_path.lower():
+        return Glm4vModule
     else:
         raise ValueError(f"Unsupported model: {model_name_or_path}")
 
@@ -953,8 +964,19 @@ def main(script_args, training_args, model_args):
     question_prompt = vlm_module_cls.get_question_template(task_type=script_args.task_type)
 
     # Get reward functions 
+    model_name = model_args.model_name_or_path
     if script_args.is_reward_customized_from_vlm_module:
-        reward_funcs = [vlm_module_cls.select_reward_func(func, script_args.task_type) for func in script_args.reward_funcs]
+        if "qwen" in model_name.lower() or "internvl" in model_name.lower():
+            reward_funcs = [vlm_module_cls.select_reward_func(func, script_args.task_type) for func in script_args.reward_funcs]
+        else:  # GLM-4.1V-9B-Thinking
+            reward_funcs = [
+                            partial(
+                                    vlm_module_cls.select_reward_func(func, script_args.task_type), 
+                                    task_type=script_args.task_type_for_format_reward, 
+                                    iou_type=script_args.iou_type
+                                   ) 
+                            for func in script_args.reward_funcs
+                           ]
     else:
         reward_funcs = [reward_funcs_registry[func] for func in script_args.reward_funcs]
     print("reward_funcs:", reward_funcs)
