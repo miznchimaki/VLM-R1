@@ -1,4 +1,5 @@
 import re, os, json
+import math
 from datetime import datetime
 from transformers import Glm4vForConditionalGeneration, AutoProcessor, AutoModelForCausalLM
 from typing import Any, Union
@@ -21,15 +22,64 @@ def iou(box1, box2):
 
 
 def giou(box1, box2):
-    pass
+    inter_x1 = max(box1[0], box2[0])
+    inter_y1 = max(box1[1], box2[1])
+    inter_x2 = min(box1[2] - 1, box2[2] - 1)
+    inter_y2 = min(box1[3] - 1, box2[3] - 1)
+    if inter_x1 < inter_x2 and inter_y1 < inter_y2:
+        inter = (inter_x2 - inter_x1 + 1) * (inter_y2 - inter_y1 + 1)
+    else:
+        inter = 0
+    union = (box1[2] - box1[0]) * (box1[3] - box1[1]) + (box2[2] - box2[0]) * (box2[3] - box2[1]) - inter
+    iou = float(inter) / union
+
+    c_width = max(box1[2], box2[2]) - min(box1[0], box2[0])
+    c_height = max(box1[3], box2[3]) - min(box1[1], box2[1])
+    c_area = c_width * c_height
+    return iou - (c_area - union) / c_area
 
 
 def diou(box1, box2):
-    pass
+    inter_x1 = max(box1[0], box2[0])
+    inter_y1 = max(box1[1], box2[1])
+    inter_x2 = min(box1[2] - 1, box2[2] - 1)
+    inter_y2 = min(box1[3] - 1, box2[3] - 1)
+    if inter_x1 < inter_x2 and inter_y1 < inter_y2:
+        inter = (inter_x2 - inter_x1 + 1) * (inter_y2 - inter_y1 + 1)
+    else:
+        inter = 0
+    union = (box1[2] - box1[0]) * (box1[3] - box1[1]) + (box2[2] - box2[0]) * (box2[3] - box2[1]) - inter
+    iou = float(inter) / union
+
+    c_width = max(box1[2], box2[2]) - min(box1[0], box2[0])
+    c_height = max(box1[3], box2[3]) - min(box1[1], box2[1])
+    c2 = c_width ** 2 + c_height ** 2
+    rho2 = (((box2[2] - box1[2]) + (box2[0] - box1[0])) ** 2 + ((box2[3] - box1[3]) + (box2[1] - box1[1])) ** 2) / 4
+
+    return iou - rho2 / c2
 
 
 def ciou(box1, box2):
-    pass
+    inter_x1 = max(box1[0], box2[0])
+    inter_y1 = max(box1[1], box2[1])
+    inter_x2 = min(box1[2] - 1, box2[2] - 1)
+    inter_y2 = min(box1[3] - 1, box2[3] - 1)
+    if inter_x1 < inter_x2 and inter_y1 < inter_y2:
+        inter = (inter_x2 - inter_x1 + 1) * (inter_y2 - inter_y1 + 1)
+    else:
+        inter = 0
+    union = (box1[2] - box1[0]) * (box1[3] - box1[1]) + (box2[2] - box2[0]) * (box2[3] - box2[1]) - inter
+    iou = float(inter) / union
+
+    c_width = max(box1[2], box2[2]) - min(box1[0], box2[0])
+    c_height = max(box1[3], box2[3]) - min(box1[1], box2[1])
+    c2 = c_width ** 2 + c_height ** 2
+    rho2 = (((box2[2] - box1[2]) + (box2[0] - box1[0])) ** 2 + ((box2[3] - box1[3]) + (box2[1] - box1[1])) ** 2) / 4
+    w1, h1 = box1[2] - box1[0], box1[3] - box1[0]
+    w2, h2 = box2[2] - box2[0], box2[3] - box2[1]
+    v = (4 / math.pi ** 2) * (torch.atan(w2 / h2) - torch.atan(w1 / h1)).pow(2)
+    alpha = v/ (v - iou + 1)
+    return iou - (rho2 / c2 + v * alpha)
 
 
 def resize_bbox(bbox, input_height, input_width, image_height, image_width):
@@ -216,10 +266,10 @@ class Glm4vModule(VLMBaseModule):
                     if bbox_match:
                         bbox = [int(bbox_match.group(1)), int(bbox_match.group(2)), int(bbox_match.group(3)), int(bbox_match.group(4))]
                         bbox = resize_bbox(bbox, input_height, input_width, image_height, image_width)
-                        # FIXME: Maybe useful for MARS2 track-1 competition (1)
+                        # TODO: Maybe useful for MARS2 track-1 competition (1)
                         # if iou_func(bbox, sol) > 0.5:
                         #     reward = 1.0
-                        # FIXME: Maybe usefule for MARS2 track-1 competition (2)
+                        # TODO: Maybe usefule for MARS2 track-1 competition (2)
                         # if iou_func(bbox, sol) < 0.5:
                         #     reward = 0.0
                         reward = iou_func(bbox, sol)
