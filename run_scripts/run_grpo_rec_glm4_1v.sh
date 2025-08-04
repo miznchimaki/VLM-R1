@@ -8,14 +8,14 @@ node_rank=${3:-"0"}
 master_addr=${4:-"127.0.0.1"}
 master_port=${5:-"15469"}
 
-default_data_paths="${HOME}/datasets/rec_jsonsl_train/refcoco_train.jsonl:"
-default_data_paths+="${HOME}/datasets/rec_jsonsl_train/refcocop_train.jsonl:"
-default_data_paths+="${HOME}/datasets/rec_jsonsl_train/refcocog_train.jsonl"
+default_data_paths="${HOME}/datasets/VLM-R1/rec_jsons_processed/refcoco_train.jsonl:"
+default_data_paths+="${HOME}/datasets/VLM-R1/rec_jsons_processed/refcocop_train.jsonl:"
+default_data_paths+="${HOME}/datasets/VLM-R1/rec_jsons_processed/refcocog_train.jsonl"
 data_paths=${6:-"${default_data_paths}"}
 
-default_image_folders="${HOME}/datasets/coco:"
-default_image_folders+="${HOME}/datasets/coco:"
-default_image_folders+="${HOME}/datasets/coco"
+default_image_folders="${HOME}/datasets/coco2014/images:"
+default_image_folders+="${HOME}/datasets/coco2014/images:"
+default_image_folders+="${HOME}/datasets/coco2014/images"
 image_folders=${7:-"${default_image_folders}"}
 
 model_path=${8:-"${HOME}/ckpts/GLM-4.1V-9B-Thinking"}
@@ -60,6 +60,7 @@ log_func torchrun --nproc_per_node=${nproc_per_node} \
              --is_reward_customized_from_vlm_module ${is_reward_customized_from_vlm_module} \
              --task_type ${task_type} \
              --task_type_for_format_reward ${task_type_for_format_reward} \
+             --iou_type giou \
              --per_device_train_batch_size 8 \
              --gradient_accumulation_steps 2 \
              --gradient_checkpointing true \
