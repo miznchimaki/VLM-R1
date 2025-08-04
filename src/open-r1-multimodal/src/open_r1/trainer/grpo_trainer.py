@@ -18,22 +18,18 @@ from collections import defaultdict
 from typing import Any, Callable, Optional, Union, Sized
 
 import torch
-import torch.utils.data
 import transformers
 from datasets import Dataset, IterableDataset
 from packaging import version
 from transformers import (
-    AriaForConditionalGeneration,
-    AriaProcessor,
     AutoModelForCausalLM,
     AutoModelForSequenceClassification,
-    AutoProcessor,
     AutoTokenizer,
     GenerationConfig,
     PreTrainedModel,
     PreTrainedTokenizerBase,
-    Qwen2VLForConditionalGeneration,
     Qwen2_5_VLForConditionalGeneration,
+    Glm4vForConditionalGeneration,
     Trainer,
     TrainerCallback,
     is_wandb_available,
@@ -50,12 +46,13 @@ from trl.trainer.utils import generate_model_card, get_comet_experiment_url
 from accelerate.utils import is_peft_model, set_seed
 import PIL.Image
 
-import copy
 from torch.utils.data import Sampler
 import warnings
 
+
 if is_peft_available():
     from peft import PeftConfig, get_peft_model
+
 
 if is_wandb_available():
     import wandb
@@ -214,6 +211,8 @@ class VLMGRPOTrainer(Trainer):
         optimizers: tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]] = (None, None),
         peft_config: Optional["PeftConfig"] = None,
         freeze_vision_modules: Optional[bool] = False,
+        freeze_projector_modules: Optional[bool] = False,
+        freeze_language_modules: Optional[bool] = False,
         attn_implementation: str = "flash_attention_2",
         torch_dtype: str = "bfloat16",
         **kwargs,
@@ -234,7 +233,7 @@ class VLMGRPOTrainer(Trainer):
         model_init_kwargs["attn_implementation"] = attn_implementation
         if model_init_kwargs.get("torch_dtype") is None:
             model_init_kwargs["torch_dtype"] = torch_dtype
-        
+
         assert isinstance(model, str), "model must be a string in the current implementation"
         model_id = model
         torch_dtype = model_init_kwargs.get("torch_dtype")
@@ -256,6 +255,8 @@ class VLMGRPOTrainer(Trainer):
 
         # LoRA
         self.vision_modules_keywords = self.vlm_module.get_vision_modules_keywords()
+        self.projector_modules_keywords = self.vlm_module.get_projector_modules_keywords()
+        self.language_modules_keywords = self.vlm_module.get_language_modules_keywords()
         if peft_config is not None:
             print("Applying LoRA...")
             def find_all_linear_names(model, multimodal_keywords):
@@ -281,6 +282,24 @@ class VLMGRPOTrainer(Trainer):
             for n, p in model.named_parameters():
                 if any(keyword in n for keyword in self.vision_modules_keywords):
                     p.requires_grad = False
+        # Freeze projector modules
+        if freeze_projector_modules:
+            print("Freezing projector modules...")
+            for n, p in model.named_parameters():
+                if any(keyword in n for keyword in self.projector_modules_keywords):
+                    p.requires_grad = False
+        if not freeze_projector_modules:
+            print("Unfreezing projector modules...")
+            for n, p in model.named_parameters():
+                if any(keyword in n for keyword in self.projector_modules_keywords):
+                    p.requires_grad = True
+        # Freeze language modules
+        if freeze_language_modules:
+            print("Freezing language modules...")
+            for n, p in model.named_parameters():
+                if any(keyword in n for keyword in self.language_modules_keywords):
+                    p.requires_grad = False
+
         # Compute the number of trainable parameters and print the parameter that is trainable
         trainable_params = [p for p in model.parameters() if p.requires_grad]
         total_params = sum(p.numel() for p in trainable_params)
@@ -300,6 +319,8 @@ class VLMGRPOTrainer(Trainer):
         elif is_deepspeed_zero3_enabled():
             if "qwen2.5-vl" in model_id.lower():
                 self.ref_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_id, **model_init_kwargs)
+            elif "glm-4.1v" in model_id.lower():
+                self.ref_model = Glm4vForConditionalGeneration.from_pretrained(model_id, **model_init_kwargs)
             else:
                 self.ref_model = AutoModelForCausalLM.from_pretrained(model_id, **model_init_kwargs)
         elif is_peft_model(model):
@@ -571,7 +592,6 @@ class VLMGRPOTrainer(Trainer):
             for i, (input_i, additional_output_i) in enumerate(zip(inputs, additional_output)):
                 input_i.update(additional_output_i)
 
-
         # max_prompt_length is not supported yet
         # if self.max_prompt_length is not None:
         #     prompt_ids = prompt_ids[:, -self.max_prompt_length :]
@@ -641,7 +661,6 @@ class VLMGRPOTrainer(Trainer):
 
         # Compute the rewards
         # No need to duplicate prompts as we're not generating multiple completions per prompt
-
         rewards_per_func = torch.zeros(len(prompts), len(self.reward_funcs), device=device)
         for i, (reward_func, reward_processing_class) in enumerate(
             zip(self.reward_funcs, self.reward_processing_classes)
@@ -671,20 +690,20 @@ class VLMGRPOTrainer(Trainer):
 
         # Gather rewards across processes
         rewards_per_func = self.accelerator.gather(rewards_per_func)
-        
+
         # Sum the rewards from all reward functions
         rewards = rewards_per_func.sum(dim=1)
-        
+
         # Compute grouped-wise rewards
         # Each group consists of num_generations completions for the same prompt
         mean_grouped_rewards = rewards.view(-1, self.num_generations).mean(dim=1)
         std_grouped_rewards = rewards.view(-1, self.num_generations).std(dim=1)
-        
+
         # Normalize the rewards to compute the advantages
         mean_grouped_rewards = mean_grouped_rewards.repeat_interleave(self.num_generations, dim=0)
         std_grouped_rewards = std_grouped_rewards.repeat_interleave(self.num_generations, dim=0)
         advantages = (rewards - mean_grouped_rewards) / (std_grouped_rewards + 1e-4)
-        
+
         # Get only the local slice of advantages
         process_slice = slice(
             self.accelerator.process_index * len(prompts),
@@ -846,7 +865,8 @@ class VLMGRPOTrainer(Trainer):
 
         model_card.save(os.path.join(self.args.output_dir, "README.md"))
 
-    def _get_train_sampler(self) -> Sampler:
+    # TODO: My Debug for transformers with version greater than 4.49.0
+    def _get_train_sampler(self, *args, **kwargs) -> Sampler:
         """Returns a sampler that ensures proper data sampling for GRPO training."""
         effective_batch_size = (
             self.args.per_device_train_batch_size

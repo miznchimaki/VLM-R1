@@ -30,6 +30,14 @@ class VLMBaseModule(ABC):
         pass
 
     @abstractmethod
+    def get_projector_modules_keywords(self):
+        pass
+
+    @abstractmethod
+    def get_language_modules_keywords(self):
+        pass
+
+    @abstractmethod
     def get_custom_multimodal_keywords(self):
         pass
 

@@ -26,9 +26,13 @@ task_type_for_format_reward=${12:-"rec"}
 max_steps=${13:-"1200"}
 debug_mode=${14:-"false"}
 
+source ${HOME}/.bashrc  # for CentOS
+source ${HOME}/depends/anaconda3/etc/profile.d/conda.sh  # for Ubuntu 22.04
+conda activate
+
 cd ${PROJECT_ROOT}/src/open-r1-multimodal
 export DEBUG_MODE=${debug_mode}  # Enable Debug if you want to see the rollout of model during RL
-output_dir=${HOME}/outputs/${exp_name}
+output_dir=${HOME}/outputs/VLM-R1/${exp_name}
 if [ -d ${output_dir} ]; then
   rm -rf ${output_dir}
 fi
@@ -69,6 +73,9 @@ log_func torchrun --nproc_per_node=${nproc_per_node} \
              --num_train_epochs 2 \
              --bf16 \
              --attn_implementation flash_attention_2 \
+             --freeze_vision_modules False \
+             --freeze_projector_modules False \
+             --freeze_language_modules True \
              --run_name ${exp_name} \
              --data_seed 42 \
              --save_steps 100 \

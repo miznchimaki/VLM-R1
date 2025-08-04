@@ -19,15 +19,11 @@ from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Optional
 from functools import partial
-from babel.numbers import parse_decimal
-from .utils.math import compute_score
-from datasets import load_dataset, load_from_disk
-from transformers import Qwen2VLForConditionalGeneration
+from open_r1.utils.math import compute_score
 
 from math_verify import parse, verify
 from open_r1.trainer import VLMGRPOTrainer, GRPOConfig
 from trl import ModelConfig, ScriptArguments, TrlParser, get_peft_config
-import PIL
 from Levenshtein import ratio
 from open_r1.utils.pycocotools.coco import COCO
 from open_r1.utils.pycocotools.cocoeval import COCOeval
@@ -37,9 +33,8 @@ from json_repair import repair_json
 
 from open_r1.vlm_modules import *
 
-from typing import Tuple
 from transformers.utils import logging
-from transformers import AutoProcessor, AutoTokenizer
+from transformers import AutoTokenizer
 
 from openai import OpenAI
 
@@ -936,6 +931,8 @@ reward_funcs_registry = {
 @dataclass
 class GRPOModelConfig(ModelConfig):
     freeze_vision_modules: bool = False
+    freeze_projector_modules: bool = False
+    freeze_language_modules: bool = False
 
 
 SYSTEM_PROMPT = (
@@ -969,14 +966,17 @@ def main(script_args, training_args, model_args):
         if "qwen" in model_name.lower() or "internvl" in model_name.lower():
             reward_funcs = [vlm_module_cls.select_reward_func(func, script_args.task_type) for func in script_args.reward_funcs]
         else:  # GLM-4.1V-9B-Thinking
-            reward_funcs = [
-                            partial(
-                                    vlm_module_cls.select_reward_func(func, script_args.task_type), 
-                                    task_type=script_args.task_type_for_format_reward, 
-                                    iou_type=script_args.iou_type
-                                   ) 
-                            for func in script_args.reward_funcs
-                           ]
+            reward_funcs = []
+            for func in script_args.reward_funcs:
+                native_reward_f = vlm_module_cls.select_reward_func(func, script_args.task_type)
+                native_f_name = native_reward_f.__name__
+                reward_f = partial(
+                                   native_reward_f,
+                                   task_type=script_args.task_type_for_format_reward,
+                                   iou_type=script_args.iou_type
+                                  )
+                reward_f.__name__ = native_f_name
+                reward_funcs.append(reward_f)
     else:
         reward_funcs = [reward_funcs_registry[func] for func in script_args.reward_funcs]
     print("reward_funcs:", reward_funcs)
@@ -1086,6 +1086,8 @@ def main(script_args, training_args, model_args):
         eval_dataset=splits.get('validation') if training_args.eval_strategy != "no" else None,
         peft_config=get_peft_config(model_args),
         freeze_vision_modules=model_args.freeze_vision_modules,
+        freeze_projector_modules=model_args.freeze_projector_modules,
+        freeze_language_modules=model_args.freeze_language_modules,
         attn_implementation=model_args.attn_implementation,
         max_pixels=script_args.max_pixels,
         min_pixels=script_args.min_pixels,

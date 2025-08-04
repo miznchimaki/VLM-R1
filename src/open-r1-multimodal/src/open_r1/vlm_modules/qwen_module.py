@@ -31,6 +31,12 @@ class Qwen2VLModule(VLMBaseModule):
     def get_vision_modules_keywords(self):  
         return ['visual']
 
+    def get_projector_modules_keywords(self):
+        return ['merger']
+
+    def get_language_modules_keywords(self):
+        return ['language_model']
+
     def get_custom_multimodal_keywords(self):
         return ['pixel_values', 'image_grid_thw']
 

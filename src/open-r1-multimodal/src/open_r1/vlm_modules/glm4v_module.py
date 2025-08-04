@@ -116,6 +116,12 @@ class Glm4vModule(VLMBaseModule):
     def get_vision_modules_keywords(self):  
         return ['visual']
 
+    def get_projector_modules_keywords(self):
+        return ['merger', 'post_conv_layernorm', 'downsample', 'post_layernorm']
+
+    def get_language_modules_keywords(self):
+        return ['language_model']
+
     def get_custom_multimodal_keywords(self):
         return ['pixel_values', 'image_grid_thw']
 
@@ -165,9 +171,13 @@ class Glm4vModule(VLMBaseModule):
     def get_question_template(task_type: str):
         match task_type:
             case "rec":
+                # return (
+                #         "Please provide the bounding box coordinates of the region this "
+                #         "sentence describes in the format [x_min, y_min, x_max, y_max]: {query}"
+                #        )
                 return (
-                        "Please provide the bounding box coordinates of the region this "
-                        "sentence describes in the format [x_min, y_min, x_max, y_max]: {query}"
+                        "First thinks about the reasoning process in the mind and then "
+                        "provides the user with the answer to the question: {query}"
                        )
             case "ic":
                 return (
@@ -189,10 +199,10 @@ class Glm4vModule(VLMBaseModule):
     def glm4v_format_reward(completions, **kwargs):
         """Check if the GLM-4.1V-Thinking model output matches a specific format."""
         non_verify_pat = r"\s*<think>(.*?)</think>\s*<answer>(.*?)</answer>\s*"
-        verify_pat = r"\s*<think>(.*?)</think>\s*<answer>(.*?)<|begin_of_box|>(.*?)<|end_of_box|>(.*?)</answer>\s*"
+        verify_pat = r"\s*<think>(.*?)</think>\s*<answer>(.*?)<\|begin_of_box\|>(.*?)<\|end_of_box\|>(.*?)</answer>\s*"
         think_pat = r"\s*<think>(.*?)</think>\s*"
         answer_pat = r"\s*<answer>(.*?)</answer>\s*"
-        box_pat = r"\s*<\|begin_of_box\|>(*.?)<\|end_of_box\|>\s*"
+        box_pat = r"\s*<\|begin_of_box\|>(.*?)<\|end_of_box\|>\s*"
         rec_pat = r".*?\[\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\]\].*?"
 
         completion_contents = [completion[0]["content"] for completion in completions]

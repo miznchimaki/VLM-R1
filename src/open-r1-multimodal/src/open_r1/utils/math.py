@@ -1,13 +1,14 @@
 from math_verify import parse, verify
+
+
 def compute_score(solution_str, ground_truth) -> float:
     retval = 0.
-    
+
     if solution_str == ground_truth:
         return 1.0 
 
     if float(verify(parse(solution_str), parse(ground_truth))) > 0:
         return 1.0 
-
     try:
         answer = solution_str
         string_in_last_boxed = last_boxed_only_string(solution_str)
@@ -34,6 +35,7 @@ def remove_boxed(s):
     assert s[-1] == "}"
 
     return s[len(left):-1]
+
 
 def last_boxed_only_string(string):
     idx = string.rfind("\\boxed")
@@ -64,6 +66,7 @@ def last_boxed_only_string(string):
 
     return retval
 
+
 # string normalization from https://github.com/EleutherAI/lm-evaluation-harness/blob/master/lm_eval/tasks/hendrycks_math.py
 def is_equiv(str1, str2, verbose=False):
     if str1 is None and str2 is None:
@@ -71,7 +74,6 @@ def is_equiv(str1, str2, verbose=False):
         return True
     if str1 is None or str2 is None:
         return False
-
     try:
         ss1 = strip_string(str1)
         ss2 = strip_string(str2)
@@ -80,7 +82,6 @@ def is_equiv(str1, str2, verbose=False):
         return ss1 == ss2
     except Exception:
         return str1 == str2
-
 
 
 def fix_fracs(string):
