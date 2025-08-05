@@ -395,8 +395,14 @@ class VLMGRPOTrainer(Trainer):
         self.num_generations = args.num_generations  # = G in the GRPO paper
         self.generation_config = GenerationConfig(
             max_new_tokens=self.max_completion_length,
-            do_sample=True,  
-            temperature=1,
+            do_sample=args.do_sample,
+            num_beams=args.num_beams,
+            num_beam_groups=args.num_beam_groups,
+            temperature=args.temperature,
+            top_p=args.top_p,
+            top_k=args.top_k,
+            min_p=args.min_p,
+            repetition_penalty=args.repetition_penalty,
             pad_token_id=pad_token_id,
         )
         if hasattr(self.vlm_module, "get_eos_token_id"): # For InternVL

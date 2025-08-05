@@ -1109,6 +1109,7 @@ def main(script_args, training_args, model_args):
 if __name__ == "__main__":
     parser = TrlParser((GRPOScriptArguments, GRPOConfig, GRPOModelConfig))
     script_args, training_args, model_args = parser.parse_args_and_config()
+    assert training_args.do_sample, f"when using GRPO to do RL training, the parameter `do_sample` must be True"
     if training_args.deepspeed and "zero3" in training_args.deepspeed:
         print("zero3 is used, qwen2_5vl forward monkey patch is applied")
         monkey_patch_qwen2_5vl_forward()

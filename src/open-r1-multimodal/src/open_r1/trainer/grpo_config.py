@@ -189,8 +189,20 @@ class GRPOConfig(TrainingArguments):
     )
 
     # Parameters that control generation
+    do_sample: bool = field(
+        default=True,
+        metadata={"help": "Whether or not to use sampling ; use greedy decoding otherwise."}
+    )
+    num_beams: int = field(
+        default=1,
+        metadata={"help": "Number of beams for beam search. 1 means no beam search."}
+    )
+    num_beam_groups: int = field(
+        default=1,
+        metadata={"help": "Number of groups to divide num_beams into in order to ensure diversity among different groups of beams."}
+    )
     temperature: float = field(
-        default=0.9,
+        default=1.0,
         metadata={"help": "Temperature for sampling. The higher the temperature, the more random the completions."},
     )
     top_p: float = field(
