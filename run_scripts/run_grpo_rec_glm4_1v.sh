@@ -80,6 +80,7 @@ log_func torchrun --nproc_per_node=${nproc_per_node} \
              --data_seed 42 \
              --save_steps 100 \
              --num_generations 8 \
+             --num_iterations 1 \
              --max_completion_length 2048 \
              --reward_funcs accuracy format \
              --beta 0.04 \
