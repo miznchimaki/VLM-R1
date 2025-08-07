@@ -333,7 +333,10 @@ class VLMGRPOTrainer(Trainer):
         # Processing class
         if processing_class is None:
             processing_cls = self.vlm_module.get_processing_class()
-            processing_class = processing_cls.from_pretrained(model_id, trust_remote_code=model_init_kwargs.get("trust_remote_code", None))
+            if "glm-4.1v" not in model_id.lower():
+                processing_class = processing_cls.from_pretrained(model_id, trust_remote_code=model_init_kwargs.get("trust_remote_code", None))
+            else:
+                processing_class = processing_cls.from_pretrained(model_id, use_fast=True)
             for component, processing_keyword in self.vlm_module.get_custom_processing_keywords():
                 if processing_keyword in kwargs:
                     # If we cannot find component in processing_class, return the processing_class itself
