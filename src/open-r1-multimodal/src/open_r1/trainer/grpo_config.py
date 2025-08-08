@@ -300,6 +300,20 @@ class GRPOConfig(TrainingArguments):
             "`transformers.TrainingArguments`."
         },
     )
+    vision_learning_rate: float = field(
+        default=None,
+        metadata={
+            "help": "vision encoder initial learning rate, default value is `None`, which means "
+            "equal to learning_rate"
+        },
+    )
+    projector_learning_rate: float = field(
+        default=None,
+        metadata={
+            "help": "vision-language projector initial learning rate, default value is `None`, which means"
+            "equal to learning_rate"
+        },
+    )
     beta: float = field(
         default=0.04,
         metadata={

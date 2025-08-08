@@ -71,6 +71,10 @@ log_func torchrun --nproc_per_node=${nproc_per_node} \
              --logging_steps 1 \
              --max_steps ${max_steps} \
              --num_train_epochs 2 \
+             --learning_rate 1e-6 \
+             --vision_learning_rate 1e-6 \
+             --projector_learning_rate 1e-6 \
+             --optim adamw_torch \
              --bf16 \
              --attn_implementation flash_attention_2 \
              --freeze_vision_modules False \
@@ -82,7 +86,7 @@ log_func torchrun --nproc_per_node=${nproc_per_node} \
              --num_generations 8 \
              --num_iterations 1 \
              --max_completion_length 2048 \
-             --reward_funcs accuracy format \
+             --reward_funcs accuracy \
              --beta 0.04 \
              --report_to wandb \
              --deepspeed ${PROJECT_ROOT}/src/open-r1-multimodal/local_scripts/zero3.json

@@ -18,6 +18,7 @@ from collections import defaultdict
 from typing import Any, Callable, Optional, Union, Sized
 
 import torch
+from torch import nn
 import transformers
 from datasets import Dataset, IterableDataset
 from packaging import version
@@ -209,9 +210,6 @@ class VLMGRPOTrainer(Trainer):
         callbacks: Optional[list[TrainerCallback]] = None,
         optimizers: tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]] = (None, None),
         peft_config: Optional["PeftConfig"] = None,
-        freeze_vision_modules: Optional[bool] = False,
-        freeze_projector_modules: Optional[bool] = False,
-        freeze_language_modules: Optional[bool] = False,
         attn_implementation: str = "flash_attention_2",
         torch_dtype: str = "bfloat16",
         **kwargs,
@@ -276,24 +274,24 @@ class VLMGRPOTrainer(Trainer):
             model = get_peft_model(model, peft_config)
 
         # Freeze vision modules
-        if freeze_vision_modules:
+        if args.freeze_vision_modules:
             print("Freezing vision modules...")
             for n, p in model.named_parameters():
                 if any(keyword in n for keyword in self.vision_modules_keywords):
                     p.requires_grad = False
         # Freeze projector modules
-        if freeze_projector_modules:
+        if args.freeze_projector_modules:
             print("Freezing projector modules...")
             for n, p in model.named_parameters():
                 if any(keyword in n for keyword in self.projector_modules_keywords):
                     p.requires_grad = False
-        if not freeze_projector_modules:
+        if not args.freeze_projector_modules:
             print("Unfreezing projector modules...")
             for n, p in model.named_parameters():
                 if any(keyword in n for keyword in self.projector_modules_keywords):
                     p.requires_grad = True
         # Freeze language modules
-        if freeze_language_modules:
+        if args.freeze_language_modules:
             print("Freezing language modules...")
             for n, p in model.named_parameters():
                 if any(keyword in n for keyword in self.language_modules_keywords):
@@ -872,6 +870,56 @@ class VLMGRPOTrainer(Trainer):
         )
 
         model_card.save(os.path.join(self.args.output_dir, "README.md"))
+
+    def create_optimizer(self):
+        """
+        Setup the optimizer.
+
+        We provide a reasonable default that works well. If you want to use something else, you can pass a tuple in the
+        Trainer's init through `optimizers`, or subclass and override this method in a subclass.
+        """
+        opt_model = self.model
+
+        if self.optimizer is None:
+            decay_parameters = self.get_decay_parameter_names(opt_model)
+            optimizer_grouped_parameters = [
+                {
+                    "params": [
+                        p for n, p in opt_model.named_parameters() if (n in decay_parameters and p.requires_grad)
+                    ],
+                    "weight_decay": self.args.weight_decay,
+                },
+                {
+                    "params": [
+                        p for n, p in opt_model.named_parameters() if (n not in decay_parameters and p.requires_grad)
+                    ],
+                    "weight_decay": 0.0,
+                },
+            ]
+
+            if self.optimizer_cls_and_kwargs is not None:
+                optimizer_cls, optimizer_kwargs = self.optimizer_cls_and_kwargs
+            else:
+                optimizer_cls, optimizer_kwargs = self.get_optimizer_cls_and_kwargs(self.args, opt_model)
+
+            # Overwrite `params` in case it's created by `get_optimizer_cls_and_kwargs`
+            # e.g. for GaLore optimizer.
+            if "params" in optimizer_kwargs:
+                optimizer_grouped_parameters = optimizer_kwargs.pop("params")
+
+            # Overwrite `model` in case it's created by `get_optimizer_cls_and_kwargs`
+            # e.g. for LOMO optimizer.
+            if "model" in optimizer_kwargs:
+                optimizer_grouped_parameters = optimizer_kwargs.pop("model")
+
+            # For layer-wise dummy optimizers we overwrite optimizer_grouped_parameters with `optimizer_dict`
+            # to avoid arguments conflicts.
+            if "optimizer_dict" in optimizer_kwargs:
+                optimizer_grouped_parameters = optimizer_kwargs.pop("optimizer_dict")
+
+            self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
+
+        return self.optimizer
 
     # TODO: My Debug for transformers with version greater than 4.49.0
     def _get_train_sampler(self, *args, **kwargs) -> Sampler:

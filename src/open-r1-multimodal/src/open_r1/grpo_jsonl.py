@@ -1085,9 +1085,6 @@ def main(script_args, training_args, model_args):
         train_dataset=splits['train'],
         eval_dataset=splits.get('validation') if training_args.eval_strategy != "no" else None,
         peft_config=get_peft_config(model_args),
-        freeze_vision_modules=model_args.freeze_vision_modules,
-        freeze_projector_modules=model_args.freeze_projector_modules,
-        freeze_language_modules=model_args.freeze_language_modules,
         attn_implementation=model_args.attn_implementation,
         max_pixels=script_args.max_pixels,
         min_pixels=script_args.min_pixels,
@@ -1109,7 +1106,11 @@ def main(script_args, training_args, model_args):
 if __name__ == "__main__":
     parser = TrlParser((GRPOScriptArguments, GRPOConfig, GRPOModelConfig))
     script_args, training_args, model_args = parser.parse_args_and_config()
+    training_args.freeze_vision_modules = model_args.freeze_vision_modules
+    training_args.freeze_projector_modules = model_args.freeze_projector_modules
+    training_args.freeze_language_modules = model_args.freeze_language_modules
     assert training_args.do_sample, f"when using GRPO to do RL training, the parameter `do_sample` must be True"
+
     if training_args.deepspeed and "zero3" in training_args.deepspeed:
         print("zero3 is used, qwen2_5vl forward monkey patch is applied")
         monkey_patch_qwen2_5vl_forward()
