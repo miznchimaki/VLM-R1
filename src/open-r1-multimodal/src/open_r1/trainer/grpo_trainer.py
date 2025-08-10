@@ -232,6 +232,7 @@ class VLMGRPOTrainer(Trainer):
             model_init_kwargs["torch_dtype"] = torch_dtype
 
         assert isinstance(model, str), "model must be a string in the current implementation"
+        args.model_name_or_path = model
         model_id = model
         torch_dtype = model_init_kwargs.get("torch_dtype")
         if isinstance(torch_dtype, torch.dtype) or torch_dtype == "auto" or torch_dtype is None:
@@ -880,42 +881,113 @@ class VLMGRPOTrainer(Trainer):
         """
         opt_model = self.model
 
+        whether_freeze = self.args.freeze_vision_modules or self.args.freeze_projector_modules or self.args.freeze_language_modules
         if self.optimizer is None:
             decay_parameters = self.get_decay_parameter_names(opt_model)
-            optimizer_grouped_parameters = [
-                {
-                    "params": [
-                        p for n, p in opt_model.named_parameters() if (n in decay_parameters and p.requires_grad)
-                    ],
-                    "weight_decay": self.args.weight_decay,
-                },
-                {
-                    "params": [
-                        p for n, p in opt_model.named_parameters() if (n not in decay_parameters and p.requires_grad)
-                    ],
-                    "weight_decay": 0.0,
-                },
-            ]
-
             if self.optimizer_cls_and_kwargs is not None:
                 optimizer_cls, optimizer_kwargs = self.optimizer_cls_and_kwargs
             else:
                 optimizer_cls, optimizer_kwargs = self.get_optimizer_cls_and_kwargs(self.args, opt_model)
 
-            # Overwrite `params` in case it's created by `get_optimizer_cls_and_kwargs`
-            # e.g. for GaLore optimizer.
-            if "params" in optimizer_kwargs:
-                optimizer_grouped_parameters = optimizer_kwargs.pop("params")
+            # extra optimizer creation for compatible between ZeRO3 and frozen parameters
+            # does not support GaLore and LOMO optimizers
+            if (getattr(self.accelerator, "deepspeed_plugin", None) is not None
+                and self.accelerator.deepspeed_plugin.zero_stage == 3
+                and whether_freeze):
+                vision_kw = ("vision_model", "visual", "visual")  # internvl; qwen-vl; glm-4.1v
+                projector_kw = ("mlp1", "merger", "merger")
+                language_kw = ("language_model", "language_model", "language_model")
+                optimizer_kwargs.pop("lr")
+                optimizer_grouped_parameters = []
+                freeze_params = dict([
+                    ("params", []), ("lr", 0.0)
+                ])
+                vision_train_with_wd = dict([
+                    ("params", []),
+                    ("weight_decay", self.args.weight_decay),
+                    ("lr", self.args.vision_learning_rate)
+                ])
+                vision_train_no_wd = dict([
+                    ("params", []),
+                    ("weight_decay", 0.0),
+                    ("lr", self.args.vision_learning_rate)
+                ])
+                projector_train_with_wd = dict([
+                    ("params", []),
+                    ("weight_decay", self.args.weight_decay),
+                    ("lr", self.args.projector_learning_rate)
+                ])
+                projector_train_no_wd = dict([
+                    ("params", []),
+                    ("weight_decay", 0.0),
+                    ("lr", self.args.projector_learning_rate)
+                ])
+                language_train_with_wd = dict([
+                    ("params", []),
+                    ("weight_decay", self.args.weight_decay),
+                    ("lr", self.learning_rate)
+                ])
+                language_train_no_wd = dict([
+                    ("params", []),
+                    ("weight_decay", 0.0),
+                    ("lr", self.learning_rate)
+                ])
+                for name, param in opt_model.named_parameters():
+                    if whether_freeze:
+                        if self.args.freeze_vision_modules and any(v_kw in name for v_kw in vision_kw):  # frozen vision params
+                            pass
+                        if self.args.freeze_projector_modules and any(p_kw in name for p_kw in projector_kw):  # frozen projector params
+                            pass
+                        if self.args.freeze_language_modules and any(l_kw in name for l_kw in language_kw):  # frozen language params
+                            pass
+                    else:
+                        no_wd = name not in decay_parameters
+                        if any(v_kw in name for v_kw in vision_kw):
+                            if no_wd:
+                                pass
+                            else:
+                                pass
+                        elif any(p_kw in name for p_kw in projector_kw):
+                            if no_wd:
+                                pass
+                            else:
+                                pass
+                        else:
+                            if no_wd:
+                                pass
+                            else:
+                                pass
+                # TODO: 还有,最后如果params对应的value是空,就不用添加到group parameters中
+            else:
+                optimizer_grouped_parameters = [
+                    {
+                        "params": [
+                            p for n, p in opt_model.named_parameters() if (n in decay_parameters and p.requires_grad)
+                        ],
+                        "weight_decay": self.args.weight_decay,
+                    },
+                    {
+                        "params": [
+                            p for n, p in opt_model.named_parameters() if (n not in decay_parameters and p.requires_grad)
+                        ],
+                        "weight_decay": 0.0,
+                    },
+                ]
 
-            # Overwrite `model` in case it's created by `get_optimizer_cls_and_kwargs`
-            # e.g. for LOMO optimizer.
-            if "model" in optimizer_kwargs:
-                optimizer_grouped_parameters = optimizer_kwargs.pop("model")
+                # Overwrite `params` in case it's created by `get_optimizer_cls_and_kwargs`
+                # e.g. for GaLore optimizer.
+                if "params" in optimizer_kwargs:
+                    optimizer_grouped_parameters = optimizer_kwargs.pop("params")
 
-            # For layer-wise dummy optimizers we overwrite optimizer_grouped_parameters with `optimizer_dict`
-            # to avoid arguments conflicts.
-            if "optimizer_dict" in optimizer_kwargs:
-                optimizer_grouped_parameters = optimizer_kwargs.pop("optimizer_dict")
+                # Overwrite `model` in case it's created by `get_optimizer_cls_and_kwargs`
+                # e.g. for LOMO optimizer.
+                if "model" in optimizer_kwargs:
+                    optimizer_grouped_parameters = optimizer_kwargs.pop("model")
+
+                # For layer-wise dummy optimizers we overwrite optimizer_grouped_parameters with `optimizer_dict`
+                # to avoid arguments conflicts.
+                if "optimizer_dict" in optimizer_kwargs:
+                    optimizer_grouped_parameters = optimizer_kwargs.pop("optimizer_dict")
 
             self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
 
