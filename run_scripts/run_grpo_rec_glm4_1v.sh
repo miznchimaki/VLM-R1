@@ -68,13 +68,15 @@ log_func torchrun --nproc_per_node=${nproc_per_node} \
              --per_device_train_batch_size 8 \
              --gradient_accumulation_steps 2 \
              --gradient_checkpointing true \
+             --temperature 1.0 \
+             --top_p 1.0 \
+             --top_k 50 \
              --logging_steps 1 \
              --max_steps ${max_steps} \
              --num_train_epochs 2 \
              --learning_rate 1e-6 \
              --vision_learning_rate 1e-6 \
              --projector_learning_rate 1e-6 \
-             --optim adamw_torch \
              --bf16 \
              --attn_implementation flash_attention_2 \
              --freeze_vision_modules False \
@@ -82,13 +84,13 @@ log_func torchrun --nproc_per_node=${nproc_per_node} \
              --freeze_language_modules True \
              --run_name ${exp_name} \
              --data_seed 42 \
-             --save_steps 100 \
+             --save_steps 500 \
              --num_generations 8 \
              --num_iterations 1 \
              --max_completion_length 2048 \
              --reward_funcs accuracy \
              --beta 0.04 \
              --report_to wandb \
-             --deepspeed ${PROJECT_ROOT}/src/open-r1-multimodal/local_scripts/zero3.json
+             --deepspeed ${PROJECT_ROOT}/src/open-r1-multimodal/local_scripts/zero3_offload.json
 
 log_func echo "end GRPO traning at `date +%Y-%m-%d-%H-%M-%S`"
