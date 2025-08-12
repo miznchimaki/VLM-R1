@@ -55,6 +55,8 @@ from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLCausalL
 from typing import List, Union
 from torch.nn import CrossEntropyLoss
 from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLForConditionalGeneration
+from transformers.models.glm4v.modeling_glm4v import Glm4vForConditionalGeneration
+from transformers.utils import auto_docstring, can_return_tuple
 
 
 def qwen2_5vl_forward(
@@ -219,8 +221,174 @@ def qwen2_5vl_forward(
         )
 
 
+
+from transformers.models.glm4v.modeling_glm4v import Glm4vForConditionalGeneration
+from transformers.utils import auto_docstring, can_return_tuple, is_torchdynamo_compiling, LossKwargs
+from transformers.processing_utils import Unpack
+from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
+from transformers.models.glm4v.modeling_glm4v import Glm4vModelOutputWithPast
+
+
+class KwargsForCausalLM(FlashAttentionKwargs, LossKwargs): ...
+
+
+@auto_docstring
+@can_return_tuple
+def glm4v_forward(
+    self,
+    input_ids: torch.LongTensor = None,
+    attention_mask: Optional[torch.Tensor] = None,
+    position_ids: Optional[torch.LongTensor] = None,
+    past_key_values: Optional[list[torch.FloatTensor]] = None,
+    inputs_embeds: Optional[torch.FloatTensor] = None,
+    use_cache: Optional[bool] = None,
+    output_attentions: Optional[bool] = None,
+    output_hidden_states: Optional[bool] = None,
+    pixel_values: Optional[torch.Tensor] = None,
+    pixel_values_videos: Optional[torch.FloatTensor] = None,
+    image_grid_thw: Optional[torch.LongTensor] = None,
+    video_grid_thw: Optional[torch.LongTensor] = None,
+    rope_deltas: Optional[torch.LongTensor] = None,
+    cache_position: Optional[torch.LongTensor] = None,
+    **kwargs: Unpack[KwargsForCausalLM],
+) -> Union[tuple, Glm4vModelOutputWithPast]:
+    r"""
+    pixel_values_videos (`torch.FloatTensor` of shape `(seq_length, num_channels * temporal_size * image_size * image_size)):
+        The tensors corresponding to the input videos. Pixel values can be obtained using
+        [`AutoImageProcessor`]. See [`Glm4vImageProcessor.__call__`] for details. [`Glm4vProcessor`] uses
+        [`Glm4vImageProcessor`] for processing videos.
+    image_grid_thw (`torch.LongTensor` of shape `(num_images, 3)`, *optional*):
+        The temporal, height and width of feature shape of each image in LLM.
+    video_grid_thw (`torch.LongTensor` of shape `(num_videos, 3)`, *optional*):
+        The temporal, height and width of feature shape of each video in LLM.
+    rope_deltas (`torch.LongTensor` of shape `(batch_size, )`, *optional*):
+        The rope index difference between sequence length and multimodal rope.
+    """
+
+    output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+    output_hidden_states = (
+        output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+    )
+
+    if (input_ids is None) ^ (inputs_embeds is not None):
+        raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
+
+    if pixel_values is not None and inputs_embeds is not None:
+        raise ValueError(
+            "You cannot specify both pixel_values and inputs_embeds at the same time, and must specify either one"
+        )
+
+    if inputs_embeds is None:
+        inputs_embeds = self.get_input_embeddings()(input_ids)
+
+    if pixel_values is not None:
+        image_embeds = self.get_image_features(pixel_values, image_grid_thw)
+        image_embeds = torch.cat(image_embeds, dim=0)
+        n_image_tokens = (input_ids == self.config.image_token_id).sum()
+        n_image_features = image_embeds.shape[0]
+        if not is_torchdynamo_compiling() and n_image_tokens != n_image_features:
+            raise ValueError(
+                f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}"
+            )
+
+        mask = input_ids == self.config.image_token_id
+        mask_unsqueezed = mask.unsqueeze(-1)
+        mask_expanded = mask_unsqueezed.expand_as(inputs_embeds)
+        image_mask = mask_expanded.to(inputs_embeds.device)
+        image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
+        inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
+
+    if pixel_values_videos is not None:
+        video_embeds = self.get_video_features(pixel_values_videos, video_grid_thw)
+        video_embeds = torch.cat(video_embeds, dim=0)
+        n_video_tokens = (input_ids == self.config.image_token_id).sum()
+        n_video_features = video_embeds.shape[0]
+        if not is_torchdynamo_compiling() and n_video_tokens != n_video_features:
+            raise ValueError(
+                f"Video features and video tokens do not match: tokens: {n_video_tokens}, features {n_video_features}"
+            )
+
+        mask = input_ids == self.config.image_token_id  # GLM-4.1V use image_token_id for video
+        mask_unsqueezed = mask.unsqueeze(-1)
+        mask_expanded = mask_unsqueezed.expand_as(inputs_embeds)
+        video_mask = mask_expanded.to(inputs_embeds.device)
+        video_embeds = video_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
+        inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
+
+    if position_ids is None:
+        attention_mask_tensor = attention_mask
+        if attention_mask_tensor is not None and attention_mask_tensor.ndim == 4:
+            attention_mask_tensor = torch.diagonal(attention_mask_tensor[:, 0], dim1=1, dim2=2)
+            attention_mask_tensor = attention_mask_tensor / torch.finfo(attention_mask_tensor.dtype).min
+            attention_mask_tensor = (1.0 - attention_mask_tensor).int()
+        # TODO: Debug for GLM-4.1V training under ZeRO-3(-offload)
+        if attention_mask_tensor.ndim == input_ids.ndim and attention_mask_tensor.shape[-1] > input_ids.shape[-1]:
+            attention_mask_tensor = attention_mask_tensor[..., : input_ids.shape[-1]]
+
+        # Calculate RoPE index once per generation in the pre-fill stage only.
+        # When compiling, we can't check tensor values thus we check only input length
+        # It is safe to assume that `length!=1` means we're in pre-fill because compiled
+        # models currently cannot do asssisted decoding
+        prefill_compiled_stage = is_torchdynamo_compiling() and (
+            (input_ids is not None and input_ids.shape[1] != 1)
+            or (inputs_embeds is not None and inputs_embeds.shape[1] != 1)
+        )
+        prefill_noncompiled_stage = not is_torchdynamo_compiling() and (
+            (cache_position is not None and cache_position[0] == 0)
+            or (past_key_values is None or past_key_values.get_seq_length() == 0)
+        )
+        if (prefill_compiled_stage or prefill_noncompiled_stage) or self.rope_deltas is None:
+            position_ids, rope_deltas = self.get_rope_index(
+                input_ids,
+                image_grid_thw,
+                video_grid_thw,
+                attention_mask=attention_mask_tensor,
+            )
+            self.rope_deltas = rope_deltas
+        # then use the prev pre-calculated rope-deltas to get the correct position ids
+        else:
+            batch_size, seq_length, _ = inputs_embeds.shape
+            delta = (
+                (cache_position[0] + self.rope_deltas).to(inputs_embeds.device)
+                if cache_position is not None
+                else 0
+            )
+            position_ids = torch.arange(seq_length, device=inputs_embeds.device)
+            position_ids = position_ids.view(1, -1).expand(batch_size, -1)
+            if cache_position is not None:  # otherwise `deltas` is an int `0`
+                delta = delta.repeat_interleave(batch_size // delta.shape[0], dim=0)
+            position_ids = position_ids.add(delta)
+            position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
+
+    outputs = self.language_model(
+        input_ids=None,
+        position_ids=position_ids,
+        attention_mask=attention_mask,
+        past_key_values=past_key_values,
+        inputs_embeds=inputs_embeds,
+        use_cache=use_cache,
+        output_attentions=output_attentions,
+        output_hidden_states=output_hidden_states,
+        return_dict=True,
+        cache_position=cache_position,
+        **kwargs,
+    )
+
+    return Glm4vModelOutputWithPast(
+        last_hidden_state=outputs.last_hidden_state,
+        past_key_values=outputs.past_key_values,
+        hidden_states=outputs.hidden_states,
+        attentions=outputs.attentions,
+        rope_deltas=self.rope_deltas,
+    )
+
+
 def monkey_patch_qwen2_5vl_forward():
     Qwen2_5_VLForConditionalGeneration.forward = qwen2_5vl_forward
+
+
+def monkey_patch_glm4v_forward():
+    Glm4vForConditionalGeneration.forward = glm4v_forward
 
 
 # ----------------------- Set the Weights only as False in torch.load (In Pytorch 2.6, this is default as True)-----------------------

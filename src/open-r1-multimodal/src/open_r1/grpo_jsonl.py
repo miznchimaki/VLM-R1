@@ -47,6 +47,7 @@ client = OpenAI(
 )
 
 from open_r1.qwen2_5vl_monkey_patch import monkey_patch_qwen2_5vl_flash_attn, monkey_patch_qwen2_5vl_forward, monkey_patch_torch_load
+from open_r1.qwen2_5vl_monkey_patch import monkey_patch_glm4v_forward
 monkey_patch_qwen2_5vl_flash_attn()    
 monkey_patch_torch_load()
 
@@ -1114,4 +1115,5 @@ if __name__ == "__main__":
     if training_args.deepspeed and "zero3" in training_args.deepspeed:
         print("zero3 is used, qwen2_5vl forward monkey patch is applied")
         monkey_patch_qwen2_5vl_forward()
+        monkey_patch_glm4v_forward()
     main(script_args, training_args, model_args)
