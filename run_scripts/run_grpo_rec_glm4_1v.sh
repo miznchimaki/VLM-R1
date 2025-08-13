@@ -84,6 +84,12 @@ log_func torchrun --nproc_per_node=${nproc_per_node} \
              --freeze_language_modules True \
              --run_name ${exp_name} \
              --data_seed 42 \
+             --use_peft False \
+             --vision_lora False \
+             --language_lora False \
+             --lora_r 16 \
+             --lora_alpha 32 \
+             --lora_dropout 0.05 \
              --save_steps 500 \
              --num_generations 8 \
              --num_iterations 1 \

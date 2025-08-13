@@ -16,6 +16,7 @@ import os
 import textwrap
 from collections import defaultdict
 from typing import Any, Callable, Optional, Union, Sized
+import warnings
 
 import torch
 from torch import nn
@@ -251,28 +252,24 @@ class VLMGRPOTrainer(Trainer):
         model_cls = self.vlm_module.get_model_class(model_id, model_init_kwargs)
         model = model_cls.from_pretrained(model_id, **model_init_kwargs)
 
-        # LoRA
         self.vision_modules_keywords = self.vlm_module.get_vision_modules_keywords()
         self.projector_modules_keywords = self.vlm_module.get_projector_modules_keywords()
         self.language_modules_keywords = self.vlm_module.get_language_modules_keywords()
-        if peft_config is not None:
-            print("Applying LoRA...")
-            def find_all_linear_names(model, multimodal_keywords):
-                cls = torch.nn.Linear
-                lora_module_names = set()
-                for name, module in model.named_modules():
-                    # LoRA is not applied to the vision modules
-                    if any(mm_keyword in name for mm_keyword in multimodal_keywords):
-                        continue
-                    if isinstance(module, cls):
-                        lora_module_names.add(name)
-                for m in lora_module_names:  # needed for 16-bit
-                    if "embed_tokens" in m:
-                        lora_module_names.remove(m)
-                return list(lora_module_names)
-            target_modules = find_all_linear_names(model, self.vision_modules_keywords)
-            peft_config.target_modules = target_modules
-            model = get_peft_model(model, peft_config)
+
+        if args.vision_lora and (not args.freeze_vision_modules):
+            warnings.warn(
+                          "when using LoRA on vision encoder (vision_lora=True), get parameter freeze_vision_modules False, "
+                          "hence set value of freeze_vision_modules to True",
+                          category=UserWarning
+                         )
+            args.freeze_vision_modules = True
+        if args.language_lora and (not args.freeze_language_modules):
+            warnings.warn(
+                          "when using LoRA on LLM (language_lora=True), get parameter freeze_language_modules False, "
+                          "hence set value of freeze_language_modules to True",
+                          category=UserWarning
+                         )
+            args.freeze_language_modules = True
 
         # Freeze vision modules
         if args.freeze_vision_modules:
@@ -297,6 +294,29 @@ class VLMGRPOTrainer(Trainer):
             for n, p in model.named_parameters():
                 if any(keyword in n for keyword in self.language_modules_keywords):
                     p.requires_grad = False
+
+        # LoRA support for GRPO post-training
+        if peft_config is not None:
+            print("Applying LoRA...")
+            def find_all_linear_names(model, lora_keywords):
+                lora_cls = torch.nn.Linear
+                lora_module_names = set()
+                for name, module in model.named_modules():
+                    if isinstance(module, lora_cls) and any(lora_kw in name for lora_kw in lora_keywords):
+                        lora_module_names.add(name)
+                for m in lora_module_names:  # needed for 16-bit
+                    if "embed_tokens" in m or "tok_embeddings" in m: # Qwen2.5-VL & GLM-4.1V-Thinking & InternVL-3
+                        lora_module_names.remove(m)
+                return list(lora_module_names)
+            if args.vision_lora and args.language_lora:
+                vlm_lora_keywords = self.vision_modules_keywords + self.language_modules_keywords
+            elif args.vision_lora:
+                vlm_lora_keywords = self.vision_modules_keywords
+            elif args.language_lora:
+                vlm_lora_keywords = self.language_modules_keywords
+            target_modules = find_all_linear_names(model, vlm_lora_keywords)
+            peft_config.target_modules = target_modules
+            model = get_peft_model(model, peft_config)
 
         # Compute the number of trainable parameters and print the parameter that is trainable
         trainable_params = [p for p in model.parameters() if p.requires_grad]

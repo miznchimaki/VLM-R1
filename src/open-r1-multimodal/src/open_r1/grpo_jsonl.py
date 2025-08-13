@@ -934,6 +934,8 @@ class GRPOModelConfig(ModelConfig):
     freeze_vision_modules: bool = False
     freeze_projector_modules: bool = False
     freeze_language_modules: bool = False
+    vision_lora: bool = False
+    language_lora: bool = False
 
 
 SYSTEM_PROMPT = (
@@ -1110,6 +1112,8 @@ if __name__ == "__main__":
     training_args.freeze_vision_modules = model_args.freeze_vision_modules
     training_args.freeze_projector_modules = model_args.freeze_projector_modules
     training_args.freeze_language_modules = model_args.freeze_language_modules
+    training_args.vision_lora = model_args.vision_lora
+    training_args.language_lora = model_args.language_lora
     assert training_args.do_sample, f"when using GRPO to do RL training, the parameter `do_sample` must be True"
 
     if training_args.deepspeed and "zero3" in training_args.deepspeed:
