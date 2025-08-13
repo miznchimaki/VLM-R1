@@ -898,6 +898,7 @@ class VLMGRPOTrainer(Trainer):
                 projector_kw = ("mlp1", "merger", "merger")
                 language_kw = ("language_model", "language_model", "language_model")
                 optimizer_kwargs.pop("lr")
+
                 optimizer_grouped_parameters = []
                 freeze_params = dict([
                     ("params", []), ("lr", 0.0)
@@ -932,32 +933,69 @@ class VLMGRPOTrainer(Trainer):
                     ("weight_decay", 0.0),
                     ("lr", self.learning_rate)
                 ])
+
                 for name, param in opt_model.named_parameters():
+                    no_wd = name not in decay_parameters
+                    is_vision_name = any(v_kw in name for v_kw in vision_kw)
+                    is_projector_name = any(p_kw in name for p_kw in projector_kw)
+                    is_language_name = any(l_kw in name for l_kw in language_kw)
+
                     if whether_freeze:
-                        if self.args.freeze_vision_modules and any(v_kw in name for v_kw in vision_kw):  # frozen vision params
-                            pass
-                        if self.args.freeze_projector_modules and any(p_kw in name for p_kw in projector_kw):  # frozen projector params
-                            pass
-                        if self.args.freeze_language_modules and any(l_kw in name for l_kw in language_kw):  # frozen language params
-                            pass
-                    else:
-                        no_wd = name not in decay_parameters
-                        if any(v_kw in name for v_kw in vision_kw):
-                            if no_wd:
-                                pass
-                            else:
-                                pass
-                        elif any(p_kw in name for p_kw in projector_kw):
-                            if no_wd:
-                                pass
-                            else:
-                                pass
+                        vision_freeze = self.args.freeze_vision_modules and is_vision_name
+                        vision_train = (not self.args.freeze_vision_modules) and is_vision_name
+                        projector_freeze = self.args.freeze_projector_modules and is_projector_name
+                        projector_train = (not self.args.freeze_projector_modules) and is_projector_name
+                        language_freeze = self.args.freeze_language_modules and is_language_name
+                        language_train = (not self.args.freeze_language_modules) and is_language_name
+
+                        if vision_freeze or projector_freeze or language_freeze:
+                            freeze_params["params"].append(param)
+                        elif vision_train and no_wd:
+                            vision_train_no_wd["params"].append(param)
+                        elif vision_train and (not no_wd):
+                            vision_train_with_wd["params"].append(param)
+                        elif projector_train and no_wd:
+                            projector_train_no_wd["params"].append(param)
+                        elif projector_train and (not no_wd):
+                            projector_train_with_wd["params"].append(param)
+                        elif language_train and no_wd:
+                            language_train_no_wd["params"].append(param)
+                        elif language_train and (not no_wd):
+                            language_train_with_wd["params"].append(param)
                         else:
+                            raise RuntimeError(
+                                               f"When creating optimizer for partial freezing, "
+                                               f"get an unexpected parameter named {name} with "
+                                               f"shape: {param.shape}"
+                                              )
+                    else:
+                        if is_vision_name:
                             if no_wd:
-                                pass
+                                vision_train_no_wd["params"].append(param)
                             else:
-                                pass
-                # TODO: 还有,最后如果params对应的value是空,就不用添加到group parameters中
+                                vision_train_with_wd["params"].append(param)
+                        elif is_projector_name:
+                            if no_wd:
+                                projector_train_no_wd["params"].append(param)
+                            else:
+                                projector_train_with_wd["params"].append(param)
+                        elif is_language_name:
+                            if no_wd:
+                                language_train_no_wd["params"].append(param)
+                            else:
+                                language_train_with_wd["params"].append(param)
+                        else:
+                            raise RuntimeError(
+                                               f"When creating optimizer for unfreezing, get an "
+                                               f"unexpected parameter named {name} with shape: {param.shape}")
+                for params_group_str in (
+                                         "freeze_params", "vision_train_with_wd", "vision_train_no_wd",
+                                         "projector_train_with_wd", "projector_train_no_wd",
+                                         "language_train_with_wd", "language_train_no_wd"
+                                        ):
+                    params_group_obj = eval(params_group_str)
+                    if len(params_group_obj["params"]):
+                        optimizer_grouped_parameters.append(params_group_obj)
             else:
                 optimizer_grouped_parameters = [
                     {
