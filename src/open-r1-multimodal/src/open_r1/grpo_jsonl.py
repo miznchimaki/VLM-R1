@@ -1117,7 +1117,7 @@ if __name__ == "__main__":
     assert training_args.do_sample, f"when using GRPO to do RL training, the parameter `do_sample` must be True"
 
     if training_args.deepspeed and "zero3" in training_args.deepspeed:
-        print("zero3 is used, qwen2_5vl forward monkey patch is applied")
+        print("zero3 is used, both qwen2_5vl and glm-4.1v forward monkey patch is applied")
         monkey_patch_qwen2_5vl_forward()
         monkey_patch_glm4v_forward()
     main(script_args, training_args, model_args)

@@ -946,12 +946,12 @@ class VLMGRPOTrainer(Trainer):
                 language_train_with_wd = dict([
                     ("params", []),
                     ("weight_decay", self.args.weight_decay),
-                    ("lr", self.learning_rate)
+                    ("lr", self.args.learning_rate)
                 ])
                 language_train_no_wd = dict([
                     ("params", []),
                     ("weight_decay", 0.0),
-                    ("lr", self.learning_rate)
+                    ("lr", self.args.learning_rate)
                 ])
 
                 for name, param in opt_model.named_parameters():
@@ -960,7 +960,12 @@ class VLMGRPOTrainer(Trainer):
                     is_projector_name = any(p_kw in name for p_kw in projector_kw)
                     is_language_name = any(l_kw in name for l_kw in language_kw)
 
-                    if whether_freeze:
+                    if "lm_head" in name:
+                        if no_wd:
+                            language_train_no_wd["params"].append(param)
+                        else:
+                            language_train_with_wd["params"].append(param)
+                    elif whether_freeze:
                         vision_freeze = self.args.freeze_vision_modules and is_vision_name
                         vision_train = (not self.args.freeze_vision_modules) and is_vision_name
                         projector_freeze = self.args.freeze_projector_modules and is_projector_name

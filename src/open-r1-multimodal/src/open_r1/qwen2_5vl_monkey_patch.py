@@ -55,8 +55,6 @@ from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLCausalL
 from typing import List, Union
 from torch.nn import CrossEntropyLoss
 from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLForConditionalGeneration
-from transformers.models.glm4v.modeling_glm4v import Glm4vForConditionalGeneration
-from transformers.utils import auto_docstring, can_return_tuple
 
 
 def qwen2_5vl_forward(
@@ -222,8 +220,8 @@ def qwen2_5vl_forward(
 
 
 
-from transformers.models.glm4v.modeling_glm4v import Glm4vForConditionalGeneration
-from transformers.utils import auto_docstring, can_return_tuple, is_torchdynamo_compiling, LossKwargs
+from transformers.models.glm4v.modeling_glm4v import Glm4vModel
+from transformers.utils import can_return_tuple, is_torchdynamo_compiling, LossKwargs
 from transformers.processing_utils import Unpack
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.models.glm4v.modeling_glm4v import Glm4vModelOutputWithPast
@@ -232,7 +230,6 @@ from transformers.models.glm4v.modeling_glm4v import Glm4vModelOutputWithPast
 class KwargsForCausalLM(FlashAttentionKwargs, LossKwargs): ...
 
 
-@auto_docstring
 @can_return_tuple
 def glm4v_forward(
     self,
@@ -388,7 +385,7 @@ def monkey_patch_qwen2_5vl_forward():
 
 
 def monkey_patch_glm4v_forward():
-    Glm4vForConditionalGeneration.forward = glm4v_forward
+    Glm4vModel.forward = glm4v_forward
 
 
 # ----------------------- Set the Weights only as False in torch.load (In Pytorch 2.6, this is default as True)-----------------------
