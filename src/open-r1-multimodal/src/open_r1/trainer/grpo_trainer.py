@@ -557,7 +557,6 @@ class VLMGRPOTrainer(Trainer):
             per_token_logps.append(token_log_prob)
         return torch.stack(per_token_logps)
 
-
     def _prepare_inputs(self, inputs):
         # Simple pass-through, just like original
         return inputs
@@ -822,12 +821,15 @@ class VLMGRPOTrainer(Trainer):
         is_clipped = (per_token_loss1 < per_token_loss2).float()
         clip_ratio = (is_clipped * completion_mask).sum() / completion_mask.sum()
         self._metrics["clip_ratio"].append(self.accelerator.gather_for_metrics(clip_ratio).mean().item())
+        self._metrics["loss"].append(self.accelerator.gather_for_metrics(loss).mean().item())
 
         return loss
 
     def log(self, logs: dict[str, float], start_time: Optional[float] = None) -> None:
         metrics = {key: sum(val) / len(val) for key, val in self._metrics.items()}  # average the metrics
+        rl_loss = metrics.pop("loss")
         logs = {**logs, **metrics}
+        logs["loss"] = rl_loss
         if version.parse(transformers.__version__) >= version.parse("4.47.0.dev0"):
             super().log(logs, start_time)
         else:  # transformers<=4.46
