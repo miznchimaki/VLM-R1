@@ -298,6 +298,7 @@ class VLMGRPOTrainer(Trainer):
         # LoRA support for GRPO post-training
         if peft_config is not None:
             print("Applying LoRA...")
+
             def find_all_linear_names(model, lora_keywords):
                 lora_cls = torch.nn.Linear
                 lora_module_names = set()
@@ -308,6 +309,7 @@ class VLMGRPOTrainer(Trainer):
                     if "embed_tokens" in m or "tok_embeddings" in m: # Qwen2.5-VL & GLM-4.1V-Thinking & InternVL-3
                         lora_module_names.remove(m)
                 return list(lora_module_names)
+
             if args.vision_lora and args.language_lora:
                 vlm_lora_keywords = self.vision_modules_keywords + self.language_modules_keywords
             elif args.vision_lora:
@@ -827,9 +829,19 @@ class VLMGRPOTrainer(Trainer):
 
     def log(self, logs: dict[str, float], start_time: Optional[float] = None) -> None:
         metrics = {key: sum(val) / len(val) for key, val in self._metrics.items()}  # average the metrics
-        rl_loss = metrics.pop("loss")
+        rl_loss = None
+        try:
+            rl_loss = metrics.pop("loss")
+        except KeyError as _:
+            warnings.warn(
+                f"no actual reinforcement learning loss in self._metrics", 
+                category=RuntimeWarning
+            )
         logs = {**logs, **metrics}
-        logs["loss"] = rl_loss
+        if rl_loss is not None:
+            logs["loss"] = rl_loss
+        else:
+            _ = logs.pop("loss")
         if version.parse(transformers.__version__) >= version.parse("4.47.0.dev0"):
             super().log(logs, start_time)
         else:  # transformers<=4.46
@@ -967,6 +979,17 @@ class VLMGRPOTrainer(Trainer):
                             language_train_no_wd["params"].append(param)
                         else:
                             language_train_with_wd["params"].append(param)
+                    # supports for peft LoRA finetuning
+                    elif "lora_A" in name or "lora_B" in name:
+                        param.requires_grad_(True)
+                        if is_vision_name and no_wd:
+                            vision_train_no_wd["params"].append(param)
+                        elif is_vision_name and (not no_wd):
+                            vision_train_with_wd["params"].append(param)
+                        elif is_language_name and no_wd:
+                            language_train_no_wd["params"].append(param)
+                        elif is_language_name and (not no_wd):
+                            language_train_with_wd["params"].append(param)
                     elif whether_freeze:
                         vision_freeze = self.args.freeze_vision_modules and is_vision_name
                         vision_train = (not self.args.freeze_vision_modules) and is_vision_name
@@ -976,26 +999,30 @@ class VLMGRPOTrainer(Trainer):
                         language_train = (not self.args.freeze_language_modules) and is_language_name
 
                         if vision_freeze or projector_freeze or language_freeze:
+                            param.requires_grad_(False)
                             freeze_params["params"].append(param)
-                        elif vision_train and no_wd:
-                            vision_train_no_wd["params"].append(param)
-                        elif vision_train and (not no_wd):
-                            vision_train_with_wd["params"].append(param)
-                        elif projector_train and no_wd:
-                            projector_train_no_wd["params"].append(param)
-                        elif projector_train and (not no_wd):
-                            projector_train_with_wd["params"].append(param)
-                        elif language_train and no_wd:
-                            language_train_no_wd["params"].append(param)
-                        elif language_train and (not no_wd):
-                            language_train_with_wd["params"].append(param)
                         else:
-                            raise RuntimeError(
-                                               f"When creating optimizer for partial freezing, "
-                                               f"get an unexpected parameter named {name} with "
-                                               f"shape: {param.shape}"
-                                              )
+                            param.requires_grad_(True)
+                            if vision_train and no_wd:
+                                vision_train_no_wd["params"].append(param)
+                            elif vision_train and (not no_wd):
+                                vision_train_with_wd["params"].append(param)
+                            elif projector_train and no_wd:
+                                projector_train_no_wd["params"].append(param)
+                            elif projector_train and (not no_wd):
+                                projector_train_with_wd["params"].append(param)
+                            elif language_train and no_wd:
+                                language_train_no_wd["params"].append(param)
+                            elif language_train and (not no_wd):
+                                language_train_with_wd["params"].append(param)
+                            else:
+                                raise RuntimeError(
+                                                   f"When creating optimizer for partial freezing, "
+                                                   f"get an unexpected parameter named {name} with "
+                                                   f"shape: {param.shape}"
+                                                  )
                     else:
+                        param.requires_grad_(True)
                         if is_vision_name:
                             if no_wd:
                                 vision_train_no_wd["params"].append(param)
