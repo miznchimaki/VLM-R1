@@ -59,7 +59,7 @@ except IndexError as _:
 MODEL_PATH = Path(HOME_DIR) / 'ckpts' / CKPT_NAME
 
 
-DEFAULT_OUTPUT_NAME = f"VLM-R1-Qwen2.5-VL-3B-REC-500steps-baseline-results"
+DEFAULT_OUTPUT_NAME = f"glm-4.1v-thinking-rec-baseline"
 try:
     tmp_output_name = sys.argv[3]
     if tmp_output_name.lower() == "none":
@@ -68,7 +68,7 @@ try:
         OUTPUT_NAME = tmp_output_name
 except IndexError as _:
     OUTPUT_NAME = DEFAULT_OUTPUT_NAME
-OUTPUT_PATH = Path(HOME_DIR) / 'outputs' / 'MARS2' / OUTPUT_NAME
+OUTPUT_PATH = Path(HOME_DIR) / 'outputs' / 'VLM-R1-evaluations' / OUTPUT_NAME
 
 
 DEFAULT_BSZ = 1
@@ -84,7 +84,8 @@ try:
 except ValueError as _:
     BSZ = DEFAULT_BSZ
 
-DEFAULT_DATA_DIR = 'ICCV-2025-Workshops-MARS2'
+
+DEFAULT_DATA_DIR = 'VLM-R1'
 try:
     tmp_data_dir = sys.argv[5]
     if tmp_data_dir.lower() == "none":
@@ -96,8 +97,7 @@ except IndexError as _:
 DATA_ROOT = Path(HOME_DIR) / 'datasets' / DATA_DIR
 
 
-# TODO: need modifications
-DEFAULT_TEST_DATASETS = ['VG-RS']
+DEFAULT_TEST_DATASETS = ['lisa_test', 'refcoco_val', 'refcocog_val', 'refcocop_val']
 try:
     tmp_test_datasets = sys.argv[6]
     if tmp_test_datasets.lower() == "none":
@@ -110,10 +110,7 @@ try:
 except IndexError as _:
     TEST_DATASETS = DEFAULT_TEST_DATASETS
 
-# TODO: need modifications
-IMAGE_DIRS = []
-for test_ds in TEST_DATASETS:
-    IMAGE_DIRS.append(str(DATA_ROOT / test_ds / (test_ds + "-images")))
+IMAGE_DIRS = [str(DATA_ROOT)] * len(TEST_DATASETS)
 
 
 #We recommend enabling flash_attention_2 for better acceleration and memory saving, especially in multi-image and video scenarios.
@@ -212,22 +209,17 @@ num_samples = 2000
 for idx, ds in enumerate(TEST_DATASETS):
     if rank == main_rank:
         print(f"Processing {ds}...")
-    # TODO: need modifications
-    ds_path = os.path.join(str(DATA_ROOT), f"{ds}.json")
+    ds_path = os.path.join(str(DATA_ROOT), "rec_jsons_processed", f"{ds}.json")
     data = json.load(open(ds_path, "r"))
     random.seed(42)
     random.shuffle(data)
     if MODEL_TYPE == "qwen2_5_vl":
-        # QUESTION_TEMPLATE = ("Please provide the bounding box coordinates of the region this sentence describes: {query}."
-        #                      "Output the thinking process in <think> </think> and final answer in <answer> </answer> tags.")
         QUESTION_TEMPLATE = ("First output the thinking process in <think> </think> tages and then output the final answer " 
-                             "in <answer> </answer> tags. Please provide the bounding box coordinates of the region "
-                             "this sentence describes: {query}.")
+                             "in <answer> </answer> tags. {query}")
     elif MODEL_TYPE == "glm4v":
-        QUESTION_TEMPLATE = "Please provide the bounding box coordinates of the region this sentence describes in the format [x_min, y_min, x_max, y_max]: {query}."
+        QUESTION_TEMPLATE = "{query}"
     elif MODEL_TYPE == "mimo_vl":
-        QUESTION_TEMPLATE = ("Please provide the bounding box coordinates of the region this sentence "
-                             "describes in the format [x_min, y_min, x_max, y_max]: {query}.")
+        QUESTION_TEMPLATE = "{query}"
 
     # Split data for distributed evaluation
     per_rank_data = len(data) // world_size
@@ -237,7 +229,6 @@ for idx, ds in enumerate(TEST_DATASETS):
 
     messages = []
     for x in rank_data:
-        # TODO: need modifications
         image_path = "file://" + os.path.join(IMAGE_DIRS[idx], x['image'])
         message = [
             # {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
@@ -250,7 +241,6 @@ for idx, ds in enumerate(TEST_DATASETS):
                 },
                 {
                     "type": "text",
-                    # TODO: need modifications
                     "text": QUESTION_TEMPLATE.format(query=x['problem'])
                 }
             ]
@@ -311,7 +301,6 @@ for idx, ds in enumerate(TEST_DATASETS):
 
         for input_example, model_output in zip(data, all_outputs):
             original_output, input_height, input_width, image_height, image_width = model_output
-            # TODO: need modifications, maybe no groud truth for evaluation
             ground_truth = input_example['solution']
             model_answer = extract_bbox_answer(original_output)
             resized_model_answer = resize_bbox(model_answer, input_height, input_width, image_height, image_width)
