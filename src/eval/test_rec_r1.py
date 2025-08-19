@@ -110,6 +110,7 @@ try:
 except IndexError as _:
     TEST_DATASETS = DEFAULT_TEST_DATASETS
 
+
 IMAGE_DIRS = [str(DATA_ROOT)] * len(TEST_DATASETS)
 
 
