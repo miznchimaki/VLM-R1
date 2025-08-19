@@ -35,6 +35,7 @@ print(f"Process {rank} using {device}")
 main_rank = 0
 HOME_DIR = os.getenv("HOME", None)
 
+
 DEFAULT_MODEL_TYPE = "qwen2_5_vl"
 try:
     tmp_model_type = sys.argv[1]
@@ -44,6 +45,7 @@ try:
         MODEL_TYPE = tmp_model_type
 except IndexError as _:
     MODEL_TYPE = DEFAULT_MODEL_TYPE
+
 
 DEFAULT_CKPT_NAME = "Qwen2.5VL-3B-VLM-R1-REC-500steps"
 try:
@@ -56,6 +58,7 @@ except IndexError as _:
     CKPT_NAME = DEFAULT_CKPT_NAME
 MODEL_PATH = Path(HOME_DIR) / 'ckpts' / CKPT_NAME
 
+
 DEFAULT_OUTPUT_NAME = f"VLM-R1-Qwen2.5-VL-3B-REC-500steps-baseline-results"
 try:
     tmp_output_name = sys.argv[3]
@@ -66,6 +69,7 @@ try:
 except IndexError as _:
     OUTPUT_NAME = DEFAULT_OUTPUT_NAME
 OUTPUT_PATH = Path(HOME_DIR) / 'outputs' / 'MARS2' / OUTPUT_NAME
+
 
 DEFAULT_BSZ = 1
 try:
@@ -90,6 +94,7 @@ try:
 except IndexError as _:
     DATA_DIR = DEFAULT_DATA_DIR
 DATA_ROOT = Path(HOME_DIR) / 'datasets' / DATA_DIR
+
 
 # TODO: need modifications
 DEFAULT_TEST_DATASETS = ['VG-RS']
@@ -128,6 +133,7 @@ elif MODEL_TYPE == "glm4v":
     )
 else:
     raise ValueError(f"invalid specified model type: {MODEL_TYPE}, only qwen2_5_vl, glm4v are supported")
+
 
 # default processer
 if MODEL_TYPE in ("qwen2_5_vl", "mimo_vl"):
@@ -211,7 +217,6 @@ for idx, ds in enumerate(TEST_DATASETS):
     data = json.load(open(ds_path, "r"))
     random.seed(42)
     random.shuffle(data)
-
     if MODEL_TYPE == "qwen2_5_vl":
         # QUESTION_TEMPLATE = ("Please provide the bounding box coordinates of the region this sentence describes: {query}."
         #                      "Output the thinking process in <think> </think> and final answer in <answer> </answer> tags.")
@@ -293,7 +298,6 @@ for idx, ds in enumerate(TEST_DATASETS):
     rank_results = [(start_idx + i, output) for i, output in enumerate(rank_outputs)]
     gathered_results = [None] * world_size
     dist.all_gather_object(gathered_results, rank_results)
-
     assert gathered_results[-1][-1][0] == len(data) - 1
     # The main process will collect all results
     if rank == main_rank:
@@ -311,7 +315,6 @@ for idx, ds in enumerate(TEST_DATASETS):
             ground_truth = input_example['solution']
             model_answer = extract_bbox_answer(original_output)
             resized_model_answer = resize_bbox(model_answer, input_height, input_width, image_height, image_width)
-
             if model_answer is not None:
                 if iou(resized_model_answer, ground_truth) > 0.5:
                     iou_match = True
