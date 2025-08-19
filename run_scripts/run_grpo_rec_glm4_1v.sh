@@ -23,8 +23,9 @@ is_reward_customized_from_vlm_module=${9:-"True"}
 exp_name=${10:-"GLM-4.1V-9B-Thinking-baseline"}
 task_type=${11:-"rec"}
 task_type_for_format_reward=${12:-"rec"}
-max_steps=${13:-"1200"}
+max_steps=${13:-"200"}
 debug_mode=${14:-"false"}
+wandb_proj_name=${15:"RL-post-training"}
 
 source ${HOME}/.bashrc  # for CentOS
 source ${HOME}/depends/anaconda3/etc/profile.d/conda.sh  # for Ubuntu 22.04
@@ -32,6 +33,8 @@ conda activate
 
 cd ${PROJECT_ROOT}/src/open-r1-multimodal
 export DEBUG_MODE=${debug_mode}  # Enable Debug if you want to see the rollout of model during RL
+export WANDB_PROJECT=${wandb_proj_name}
+
 output_dir=${HOME}/outputs/VLM-R1/${exp_name}
 if [ -d ${output_dir} ]; then
   rm -rf ${output_dir}
@@ -66,7 +69,7 @@ log_func torchrun --nproc_per_node=${nproc_per_node} \
              --task_type_for_format_reward ${task_type_for_format_reward} \
              --iou_type giou \
              --per_device_train_batch_size 8 \
-             --gradient_accumulation_steps 2 \
+             --gradient_accumulation_steps 1 \
              --gradient_checkpointing true \
              --temperature 1.0 \
              --top_p 1.0 \
@@ -78,25 +81,27 @@ log_func torchrun --nproc_per_node=${nproc_per_node} \
              --vision_learning_rate 1e-6 \
              --projector_learning_rate 1e-6 \
              --bf16 \
+             --ddp_timeout 7200 \
              --attn_implementation flash_attention_2 \
              --freeze_vision_modules False \
              --freeze_projector_modules False \
-             --freeze_language_modules True \
+             --freeze_language_modules False \
              --run_name ${exp_name} \
              --data_seed 42 \
-             --use_peft False \
              --vision_lora False \
              --language_lora False \
              --lora_r 16 \
              --lora_alpha 32 \
              --lora_dropout 0.05 \
-             --save_steps 500 \
+             --save_steps 50 \
+             --save_total_limit 1 \
              --num_generations 8 \
              --num_iterations 1 \
              --max_completion_length 2048 \
              --reward_funcs accuracy \
-             --beta 0.04 \
+             --beta 0.0 \
              --report_to wandb \
-             --deepspeed ${PROJECT_ROOT}/src/open-r1-multimodal/local_scripts/zero3_offload.json
+             --run_name ${exp_name} \
+             --deepspeed ${PROJECT_ROOT}/src/open-r1-multimodal/local_scripts/zero3.json
 
 log_func echo "end GRPO traning at `date +%Y-%m-%d-%H-%M-%S`"
