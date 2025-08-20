@@ -280,7 +280,7 @@ for idx, ds in enumerate(TEST_DATASETS):
             image_width, image_height = image.size
             batch_output.append((output_text, input_height, input_width, image_height, image_width))
         rank_outputs.extend(batch_output)
-    print(f"Rank {rank} has finished processing {len(rank_outputs)} examples")
+    print(f"\nRank {rank} has finished processing {len(rank_outputs)} examples")
 
     # Gather all outputs from all ranks
     all_outputs = [None] * len(data)
