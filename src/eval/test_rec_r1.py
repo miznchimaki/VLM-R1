@@ -310,6 +310,7 @@ for idx, ds in enumerate(TEST_DATASETS):
                 else:
                     iou_match = False
             else:
+                warnings.warn(f"for image {input_example['image']}, model failed to execute rec task: {model_output}", category=UserWarning)
                 iou_match = False
                 resized_model_answer = []
             # Create a result dictionary for this example
