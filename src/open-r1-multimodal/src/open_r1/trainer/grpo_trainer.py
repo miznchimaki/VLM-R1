@@ -820,20 +820,21 @@ class VLMGRPOTrainer(Trainer):
         # Compute final loss
         loss = ((per_token_loss * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
 
-        # Log clip ratio
-        low_clip = detach_coef < (1 - self.epsilon_low)
-        high_clip = detach_coef > (1 + self.epsilon_high)
-        is_clipped = (low_clip | high_clip).float()
-        is_low_clipped = low_clip.float()
-        is_high_clipped = high_clip.float()
-        clip_ratio = (is_clipped * completion_mask).sum() / completion_mask.sum()
-        low_clip_ratio = (is_low_clipped * completion_mask).sum() / completion_mask.sum()
-        high_clip_ratio = (is_high_clipped * completion_mask).sum() / completion_mask.sum()
-        self._metrics["clip_ratio"].append(self.accelerator.gather_for_metrics(clip_ratio).mean().item())
-        self._metrics["low_clip_ratio"].append(self.accelerator.gather_for_metrics(low_clip_ratio).mean().item())
-        self._metrics["high_clip_ratio"].append(self.accelerator.gather_for_metrics(high_clip_ratio).mean().item())
-        self._metrics["loss"].append(self.accelerator.gather_for_metrics(loss).mean().item())
+        # Log clip ratio if self.num_generations > 1 (μ of GRPO > 1)
+        if self.num_iterations > 1:
+            low_clip = detach_coef < (1 - self.epsilon_low)
+            high_clip = detach_coef > (1 + self.epsilon_high)
+            is_clipped = (low_clip | high_clip).float()
+            is_low_clipped = low_clip.float()
+            is_high_clipped = high_clip.float()
+            clip_ratio = (is_clipped * completion_mask).sum() / completion_mask.sum()
+            low_clip_ratio = (is_low_clipped * completion_mask).sum() / completion_mask.sum()
+            high_clip_ratio = (is_high_clipped * completion_mask).sum() / completion_mask.sum()
+            self._metrics["clip_ratio"].append(self.accelerator.gather_for_metrics(clip_ratio).mean().item())
+            self._metrics["low_clip_ratio"].append(self.accelerator.gather_for_metrics(low_clip_ratio).mean().item())
+            self._metrics["high_clip_ratio"].append(self.accelerator.gather_for_metrics(high_clip_ratio).mean().item())
 
+        self._metrics["loss"].append(self.accelerator.gather_for_metrics(loss).mean().item())
         return loss
 
     def log(self, logs: dict[str, float], start_time: Optional[float] = None) -> None:
