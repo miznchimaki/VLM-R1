@@ -205,8 +205,6 @@ def resize_bbox(bbox, input_height, input_width, image_height, image_width):
     return bbox
 
 
-# TODO: maybe need variable named `num_samples`, maybe or not
-num_samples = 2000
 for idx, ds in enumerate(TEST_DATASETS):
     if rank == main_rank:
         print(f"Processing {ds}...")
