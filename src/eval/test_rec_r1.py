@@ -302,8 +302,8 @@ for idx, ds in enumerate(TEST_DATASETS):
             original_output, input_height, input_width, image_height, image_width = model_output
             ground_truth = input_example['solution']
             model_answer = extract_bbox_answer(original_output)
-            resized_model_answer = resize_bbox(model_answer, input_height, input_width, image_height, image_width)
             if model_answer is not None:
+                resized_model_answer = resize_bbox(model_answer, input_height, input_width, image_height, image_width)
                 if iou(resized_model_answer, ground_truth) > 0.5:
                     iou_match = True
                     correct_number += 1
@@ -311,6 +311,7 @@ for idx, ds in enumerate(TEST_DATASETS):
                     iou_match = False
             else:
                 iou_match = False
+                resized_model_answer = []
             # Create a result dictionary for this example
             result = {
                 'image': input_example['image'],
