@@ -443,7 +443,6 @@ class Qwen2VLGRPOVLLMTrainer(Trainer):
                 self.ref_model = self.accelerator.prepare_model(
                     self.ref_model, evaluation_mode=True
                 )
-
         for i, reward_func in enumerate(self.reward_funcs):
             if isinstance(reward_func, PreTrainedModel):
                 self.reward_funcs[i] = self.accelerator.prepare_model(
@@ -495,6 +494,7 @@ class Qwen2VLGRPOVLLMTrainer(Trainer):
                 log_probs, dim=1, index=input_ids_row.unsqueeze(1)
             ).squeeze(1)
             per_token_logps.append(token_log_prob)
+
         return torch.stack(per_token_logps)
 
     # Trainer "prepares" the inputs before calling `compute_loss`. It converts to tensor and move to device.
@@ -553,7 +553,6 @@ class Qwen2VLGRPOVLLMTrainer(Trainer):
                 {"prompt": p, "multi_modal_data": {"image": i}}
                 for p, i in zip(all_prompts_text, all_images)
             ]
-
             if self.accelerator.is_main_process:
                 outputs = self.llm.generate(
                     all_multimodal_inputs,
@@ -597,7 +596,6 @@ class Qwen2VLGRPOVLLMTrainer(Trainer):
             is_eos.size(0), -1
         )
         completion_mask = (sequence_indices <= eos_idx.unsqueeze(1)).int()
-
         # Concatenate prompt_mask with completion_mask for logit computation
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)  # (B*G, P+C)
         # pixel_values = prompt_inputs["pixel_values"].repeat_interleave(
@@ -607,7 +605,6 @@ class Qwen2VLGRPOVLLMTrainer(Trainer):
         pixel_values = prompt_inputs["pixel_values"]
         # [None].repeat_interleave(self.num_generations, dim=0)
         # pixel_values = pixel_values.view(-1, pixel_values.shape[-1])
-
         image_grid_thw = prompt_inputs["image_grid_thw"]
         # .repeat_interleave(
         #     self.num_generations, dim=0
@@ -695,11 +692,9 @@ class Qwen2VLGRPOVLLMTrainer(Trainer):
         rewards_per_func = gather(rewards_per_func)
         # Sum the rewards from all reward functions
         rewards = rewards_per_func.sum(dim=1)
-
         # Compute grouped-wise rewards
         mean_grouped_rewards = rewards.view(-1, self.num_generations).mean(dim=1)
         std_grouped_rewards = rewards.view(-1, self.num_generations).std(dim=1)
-
         # Normalize the rewards to compute the advantages
         mean_grouped_rewards = mean_grouped_rewards.repeat_interleave(
             self.num_generations, dim=0
@@ -708,7 +703,6 @@ class Qwen2VLGRPOVLLMTrainer(Trainer):
             self.num_generations, dim=0
         )
         advantages = (rewards - mean_grouped_rewards) / (std_grouped_rewards + 1e-4)
-
         # Slice to keep only the local part of the data
         process_slice = slice(
             self.accelerator.process_index * len(prompts),
@@ -728,7 +722,6 @@ class Qwen2VLGRPOVLLMTrainer(Trainer):
             self._metrics[f"rewards/{reward_func_name}"].append(
                 reward_per_func[i].item()
             )
-
         self._metrics["reward"].append(rewards.mean().item())
         self._metrics["reward_std"].append(std_grouped_rewards.mean().item())
 
@@ -749,7 +742,6 @@ class Qwen2VLGRPOVLLMTrainer(Trainer):
         if return_outputs:
             raise ValueError("The GRPOTrainer does not support returning outputs")
         # Compute the per-token log probabilities for the model
-
         prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
         completion_ids, completion_mask = (
             inputs["completion_ids"],
@@ -762,7 +754,6 @@ class Qwen2VLGRPOVLLMTrainer(Trainer):
         logits_to_keep = completion_ids.size(
             1
         )  # we only need to compute the logits for the completion tokens
-
         per_token_logps = self._get_per_token_logps(
             model,
             input_ids,
@@ -771,7 +762,6 @@ class Qwen2VLGRPOVLLMTrainer(Trainer):
             image_grid_thw,
             logits_to_keep,
         )
-
         # Compute the KL divergence between the model and the reference model
         ref_per_token_logps = inputs["ref_per_token_logps"]
         per_token_kl = (
@@ -779,7 +769,6 @@ class Qwen2VLGRPOVLLMTrainer(Trainer):
             - (ref_per_token_logps - per_token_logps)
             - 1
         )
-
         # x - x.detach() allows for preserving gradients from x
         advantages = inputs["advantages"]
         per_token_loss = torch.exp(
@@ -798,7 +787,6 @@ class Qwen2VLGRPOVLLMTrainer(Trainer):
             .item()
         )
         self._metrics["completion_length"].append(completion_length)
-
         mean_kl = (
             (per_token_kl * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)
         ).mean()
@@ -808,15 +796,12 @@ class Qwen2VLGRPOVLLMTrainer(Trainer):
 
         return loss
 
-        
     def log(self, logs: dict[str, float], start_time: Optional[float] = None) -> None:
         metrics = {key: sum(val) / len(val) for key, val in self._metrics.items()}  # average the metrics
-
         # This method can be called both in training and evaluation. When called in evaluation, the keys in `logs`
         # start with "eval_". We need to add the prefix "eval_" to the keys in `metrics` to match the format.
         if next(iter(logs.keys())).startswith("eval_"):
             metrics = {f"eval_{key}": val for key, val in metrics.items()}
-
         logs = {**logs, **metrics}
         if version.parse(transformers.__version__) >= version.parse("4.47.0.dev0"):
             super().log(logs, start_time)
