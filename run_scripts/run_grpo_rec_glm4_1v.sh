@@ -25,7 +25,7 @@ task_type=${11:-"rec"}
 task_type_for_format_reward=${12:-"rec"}
 max_steps=${13:-"200"}
 debug_mode=${14:-"false"}
-wandb_proj_name=${15:"RL-post-training"}
+wandb_proj_name=${15:-"RL-post-training"}
 
 source ${HOME}/.bashrc  # for CentOS
 source ${HOME}/depends/anaconda3/etc/profile.d/conda.sh  # for Ubuntu 22.04
@@ -67,7 +67,7 @@ log_func torchrun --nproc_per_node=${nproc_per_node} \
              --is_reward_customized_from_vlm_module ${is_reward_customized_from_vlm_module} \
              --task_type ${task_type} \
              --task_type_for_format_reward ${task_type_for_format_reward} \
-             --iou_type giou \
+             --iou_type iou \
              --per_device_train_batch_size 8 \
              --gradient_accumulation_steps 1 \
              --gradient_checkpointing true \
@@ -99,9 +99,9 @@ log_func torchrun --nproc_per_node=${nproc_per_node} \
              --num_iterations 1 \
              --max_completion_length 2048 \
              --reward_funcs accuracy \
-             --beta 0.0 \
+             --beta 0.04 \
              --report_to wandb \
              --run_name ${exp_name} \
-             --deepspeed ${PROJECT_ROOT}/src/open-r1-multimodal/local_scripts/zero3.json
+             --deepspeed ${PROJECT_ROOT}/src/open-r1-multimodal/local_scripts/zero2.json
 
 log_func echo "end GRPO traning at `date +%Y-%m-%d-%H-%M-%S`"
