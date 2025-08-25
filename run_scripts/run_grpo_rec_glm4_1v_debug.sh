@@ -93,7 +93,7 @@ log_func torchrun --nproc_per_node=${nproc_per_node} \
              --lora_r 16 \
              --lora_alpha 32 \
              --lora_dropout 0.05 \
-             --save_steps 50 \
+             --save_steps ${max_steps} \
              --save_total_limit 1 \
              --num_generations 8 \
              --num_iterations 1 \
