@@ -13,13 +13,14 @@
 # limitations under the License.
 
 import os
+import time
+import statistics
 import textwrap
 from collections import defaultdict
 from typing import Any, Callable, Optional, Union, Sized
 import warnings
 
 import torch
-from torch import nn
 import transformers
 from datasets import Dataset, IterableDataset
 from packaging import version
@@ -627,6 +628,7 @@ class VLMGRPOTrainer(Trainer):
         #     prompt_mask = prompt_mask[:, -self.max_prompt_length :]
         #     prompt_inputs["attention_mask"] = prompt_mask
 
+        rollout_st_time = time.time()
         # Generate completions
         with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
             generate_returned_result = unwrapped_model.generate(
@@ -643,6 +645,7 @@ class VLMGRPOTrainer(Trainer):
                 # So the returned result of the `generate` method only contains the completion ids
                 completion_ids = generate_returned_result
                 prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
+        rollout_time = time.time() - rollout_st_time
 
         # Mask everything after the first EOS token
         is_eos = completion_ids == self.processing_class.eos_token_id
@@ -763,7 +766,8 @@ class VLMGRPOTrainer(Trainer):
             "old_per_token_logps": old_per_token_logps,
             "ref_per_token_logps": ref_per_token_logps,
             "advantages": advantages,
-            "multimodal_inputs": multimodal_inputs
+            "multimodal_inputs": multimodal_inputs,
+            "rollout_time": rollout_time,
         }
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
@@ -782,6 +786,8 @@ class VLMGRPOTrainer(Trainer):
         prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
         completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
         multimodal_inputs = inputs["multimodal_inputs"]
+        rollout_time = inputs["rollout_time"]
+        self._metrics["rollout_time"].append(statistics.mean(self.accelerator.gather_for_metrics(rollout_time)))
 
         # Concatenate for full sequence
         input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
