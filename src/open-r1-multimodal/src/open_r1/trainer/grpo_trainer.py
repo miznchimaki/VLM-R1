@@ -787,7 +787,8 @@ class VLMGRPOTrainer(Trainer):
         completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
         multimodal_inputs = inputs["multimodal_inputs"]
         rollout_time = inputs["rollout_time"]
-        self._metrics["rollout_time"].append(statistics.mean(self.accelerator.gather_for_metrics(rollout_time)))
+        self._metrics["rollout_time"].append(statistics.mean(self.accelerator.gather_for_metrics([rollout_time])))
+        self._metrics["max_rollout_time"].append(max(self.accelerator.gather_for_metrics[rollout_time]))
 
         # Concatenate for full sequence
         input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
