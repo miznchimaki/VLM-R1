@@ -80,6 +80,7 @@ log_func torchrun --nproc_per_node=${nproc_per_node} \
              --learning_rate 1e-6 \
              --vision_learning_rate 1e-6 \
              --projector_learning_rate 1e-6 \
+             --lr_scheduler_type cosine \
              --bf16 \
              --ddp_timeout 7200 \
              --attn_implementation flash_attention_2 \
@@ -99,7 +100,7 @@ log_func torchrun --nproc_per_node=${nproc_per_node} \
              --num_iterations 1 \
              --max_completion_length 2048 \
              --reward_funcs accuracy \
-             --beta 0.04 \
+             --beta 0.0 \
              --report_to wandb \
              --run_name ${exp_name} \
              --deepspeed ${PROJECT_ROOT}/src/open-r1-multimodal/local_scripts/zero2.json

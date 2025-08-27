@@ -102,6 +102,6 @@ log_func torchrun --nproc_per_node=${nproc_per_node} \
              --beta 0.0 \
              --report_to none \
              --run_name ${exp_name} \
-             --deepspeed ${PROJECT_ROOT}/src/open-r1-multimodal/local_scripts/zero3.json
+             --deepspeed ${PROJECT_ROOT}/src/open-r1-multimodal/local_scripts/zero2.json
 
 log_func echo "end GRPO traning at `date +%Y-%m-%d-%H-%M-%S`"
