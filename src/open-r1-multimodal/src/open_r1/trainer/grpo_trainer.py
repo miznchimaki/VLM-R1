@@ -862,7 +862,10 @@ class VLMGRPOTrainer(Trainer):
         if rl_loss is not None:
             logs["loss"] = rl_loss
         else:
-            _ = logs.pop("loss")
+            try:
+                _ = logs.pop("loss")
+            except KeyError as _:
+                pass
         if version.parse(transformers.__version__) >= version.parse("4.47.0.dev0"):
             super().log(logs, start_time)
         else:  # transformers<=4.46
