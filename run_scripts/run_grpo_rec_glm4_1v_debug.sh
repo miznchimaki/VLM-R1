@@ -3,9 +3,9 @@
 
 PROJECT_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 nproc_per_node=${1:-"8"}
-nnodes=${2:-"1"}
+nnodes=${2:-"2"}
 node_rank=${3:-"0"}
-master_addr=${4:-"127.0.0.1"}
+master_addr=${4:-"gpu-node13"}
 master_port=${5:-"15469"}
 
 default_data_paths="${HOME}/datasets/VLM-R1/rec_jsons_processed/refcoco_train.jsonl:"
