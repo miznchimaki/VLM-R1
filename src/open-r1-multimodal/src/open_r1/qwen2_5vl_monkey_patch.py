@@ -1,7 +1,10 @@
 
 # ----------------------- Fix the flash attention bug in the current version of transformers -----------------------
 # TODO: My Debug for transformers with version greater than 4.49.0
-# from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLVisionFlashAttention2, apply_rotary_pos_emb_flashatt, flash_attn_varlen_func
+# from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
+#     Qwen2_5_VLVisionFlashAttention2, apply_rotary_pos_emb_flashatt,
+#     flash_attn_varlen_func
+# )
 import torch
 from typing import Tuple, Optional
 
@@ -84,7 +87,7 @@ def qwen2_5vl_forward(
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         if inputs_embeds is None:
-            inputs_embeds = self.model.embed_tokens(input_ids)
+            inputs_embeds = self.model.language_model.embed_tokens(input_ids)
 
             has_images_global = False
             if pixel_values is not None:
@@ -98,8 +101,8 @@ def qwen2_5vl_forward(
             # If there are image inputs globally, ensure all GPUs call the visual model
             if has_images_global:
                 if pixel_values is not None:   
-                    pixel_values = pixel_values.type(self.visual.dtype)
-                    image_embeds = self.visual(pixel_values, grid_thw=image_grid_thw)
+                    pixel_values = pixel_values.type(self.model.visual.dtype)
+                    image_embeds = self.model.visual(pixel_values, grid_thw=image_grid_thw)
                     n_image_tokens = (input_ids == self.config.image_token_id).sum().item()
                     n_image_features = image_embeds.shape[0]
                     if n_image_tokens != n_image_features:
@@ -117,14 +120,14 @@ def qwen2_5vl_forward(
                 else:
                     with torch.no_grad():
                         # Create a dummy image data for triggering parameter synchronization
-                        dummy_pixel_values = torch.zeros((4, 1176), device=input_ids.device, dtype=self.visual.dtype)
+                        dummy_pixel_values = torch.zeros((4, 1176), device=input_ids.device, dtype=self.model.visual.dtype)
                         dummy_grid_thw = torch.tensor([[1, 2, 2]], device=input_ids.device)
-                        _ = self.visual(dummy_pixel_values, grid_thw=dummy_grid_thw)
+                        _ = self.model.visual(dummy_pixel_values, grid_thw=dummy_grid_thw)
 
             # Currently, video processing is not handled.
             if pixel_values_videos is not None:
-                pixel_values_videos = pixel_values_videos.type(self.visual.dtype)
-                video_embeds = self.visual(pixel_values_videos, grid_thw=video_grid_thw)
+                pixel_values_videos = pixel_values_videos.type(self.model.visual.dtype)
+                video_embeds = self.model.visual(pixel_values_videos, grid_thw=video_grid_thw)
                 n_video_tokens = (input_ids == self.config.video_token_id).sum().item()
                 n_video_features = video_embeds.shape[0]
                 if n_video_tokens != n_video_features:
@@ -151,7 +154,7 @@ def qwen2_5vl_forward(
                 or self.rope_deltas is None
                 or (past_key_values is None or past_key_values.get_seq_length() == 0)
             ):
-                position_ids, rope_deltas = self.get_rope_index(
+                position_ids, rope_deltas = self.model.get_rope_index(
                     input_ids,
                     image_grid_thw,
                     video_grid_thw,
@@ -219,15 +222,9 @@ def qwen2_5vl_forward(
         )
 
 
-
 from transformers.models.glm4v.modeling_glm4v import Glm4vModel
-from transformers.utils import can_return_tuple, is_torchdynamo_compiling, LossKwargs
-from transformers.processing_utils import Unpack
-from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
+from transformers.utils import can_return_tuple, is_torchdynamo_compiling
 from transformers.models.glm4v.modeling_glm4v import Glm4vModelOutputWithPast
-
-
-class KwargsForCausalLM(FlashAttentionKwargs, LossKwargs): ...
 
 
 @can_return_tuple
@@ -247,7 +244,7 @@ def glm4v_forward(
     video_grid_thw: Optional[torch.LongTensor] = None,
     rope_deltas: Optional[torch.LongTensor] = None,
     cache_position: Optional[torch.LongTensor] = None,
-    **kwargs: Unpack[KwargsForCausalLM],
+    **kwargs,
 ) -> Union[tuple, Glm4vModelOutputWithPast]:
     r"""
     pixel_values_videos (`torch.FloatTensor` of shape `(seq_length, num_channels * temporal_size * image_size * image_size)):
@@ -381,7 +378,8 @@ def glm4v_forward(
 
 
 def monkey_patch_qwen2_5vl_forward():
-    Qwen2_5_VLForConditionalGeneration.forward = qwen2_5vl_forward
+    # Qwen2_5_VLForConditionalGeneration.forward = qwen2_5vl_forward
+    pass
 
 
 def monkey_patch_glm4v_forward():

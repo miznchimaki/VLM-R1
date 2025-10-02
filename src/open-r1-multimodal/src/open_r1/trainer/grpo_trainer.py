@@ -32,7 +32,6 @@ from transformers import (
     PreTrainedModel,
     PreTrainedTokenizerBase,
     Qwen2_5_VLForConditionalGeneration,
-    Glm4vForConditionalGeneration,
     Trainer,
     TrainerCallback,
     is_wandb_available,
@@ -221,7 +220,6 @@ class VLMGRPOTrainer(Trainer):
             model_name = model if isinstance(model, str) else model.config._name_or_path
             model_name = model_name.split("/")[-1]
             args = GRPOConfig(f"{model_name}-GRPO")
-        
         self.vlm_module = vlm_module
 
         # Models
@@ -340,8 +338,6 @@ class VLMGRPOTrainer(Trainer):
         elif is_deepspeed_zero3_enabled():
             if "qwen2.5-vl" in model_id.lower():
                 self.ref_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_id, **model_init_kwargs)
-            elif "glm-4.1v" in model_id.lower():
-                self.ref_model = Glm4vForConditionalGeneration.from_pretrained(model_id, **model_init_kwargs)
             else:
                 self.ref_model = AutoModelForCausalLM.from_pretrained(model_id, **model_init_kwargs)
         elif is_peft_model(model):
@@ -545,7 +541,6 @@ class VLMGRPOTrainer(Trainer):
         # Instead, we set them to the columns expected by the `training_step` method, hence the override.
         if self._signature_columns is None:
             self._signature_columns = ["prompt"]
-
 
     # Get the per-token log probabilities for the completions for the model and the reference model
     def _get_per_token_logps(self, model, input_ids, attention_mask, **custom_multimodal_inputs):

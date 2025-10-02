@@ -1064,7 +1064,7 @@ def main(script_args, training_args, model_args):
             }
 
     # Map the conversations
-    dataset = dataset.map(make_conversation_from_jsonl, num_proc=8)
+    dataset = dataset.map(make_conversation_from_jsonl, num_proc=224)
 
     # Split dataset for validation if requested
     splits = {'train': dataset}

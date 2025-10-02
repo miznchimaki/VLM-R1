@@ -85,9 +85,9 @@ class Qwen2VLModule(VLMBaseModule):
     def get_question_template(task_type: str):
         match task_type:
             case "rec":
-                return "{Question} First output the thinking process in <think> </think> tags and then output the final answer in <answer> </answer> tags. Output the final answer in JSON format."
+                return "{query} First output the thinking process in <think> </think> tags and then output the final answer in <answer> </answer> tags. Output the final answer in JSON format."
             case "ic":
-                return "{Question} First thinks about the reasoning process in the mind and then provides the user with the answer. The reasoning process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think><answer> json format answer here </answer>"
+                return "{query} First thinks about the reasoning process in the mind and then provides the user with the answer. The reasoning process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think><answer> json format answer here </answer>"
             case "odLength":
                 SYSTEM_PROMPT = (
                     #"A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant "
@@ -95,9 +95,9 @@ class Qwen2VLModule(VLMBaseModule):
                     "process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., "
                     "<think> reasoning process here </think><answer> answer here </answer>"
                 )
-                return SYSTEM_PROMPT + '\n' + "{Question}"
+                return SYSTEM_PROMPT + '\n' + "{query}"
             case _:
-                return "{Question} First output the thinking process in <think> </think> tags and then output the final answer in <answer> </answer> tags."
+                return "{query} First output the thinking process in <think> </think> tags and then output the final answer in <answer> </answer> tags."
 
     @staticmethod
     def format_reward_rec(completions, **kwargs):

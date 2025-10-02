@@ -81,7 +81,7 @@ log_func torchrun --nproc_per_node=${nproc_per_node} \
              --vision_learning_rate 1e-6 \
              --projector_learning_rate 1e-6 \
              --bf16 \
-             --ddp_timeout 7200 \
+             --ddp_timeout 72000 \
              --attn_implementation flash_attention_2 \
              --freeze_vision_modules False \
              --freeze_projector_modules False \
