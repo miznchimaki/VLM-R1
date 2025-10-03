@@ -20,7 +20,7 @@ class VLMBaseModule(ABC):
 
     def is_embeds_input(self):
         return False
-    
+
     @abstractmethod
     def get_processing_class(self):
         pass
@@ -54,5 +54,14 @@ class VLMBaseModule(ABC):
         pass
     
     @abstractmethod
-    def prepare_model_inputs(self, processing_class, prompts_text, images, return_tensors, padding, padding_side, add_special_tokens):
+    def prepare_model_inputs(
+        self,
+        processing_class,
+        prompts_text,
+        images,
+        return_tensors,
+        padding,
+        padding_side,
+        add_special_tokens
+    ):
         pass

@@ -69,7 +69,7 @@ log_func torchrun --nproc_per_node=${nproc_per_node} \
              --task_type_for_format_reward ${task_type_for_format_reward} \
              --iou_type iou \
              --per_device_train_batch_size 2 \
-             --gradient_accumulation_steps 4 \
+             --gradient_accumulation_steps 1 \
              --gradient_checkpointing false \
              --temperature 1.0 \
              --top_p 1.0 \
@@ -94,9 +94,9 @@ log_func torchrun --nproc_per_node=${nproc_per_node} \
              --lora_r 16 \
              --lora_alpha 32 \
              --lora_dropout 0.05 \
-             --save_steps 10 \
-             --save_total_limit 20 \
-             --num_generations 8 \
+             --save_steps ${max_steps} \
+             --save_total_limit 1 \
+             --num_generations 2 \
              --num_iterations 1 \
              --max_completion_length 2048 \
              --reward_funcs accuracy \
